@@ -1,20 +1,27 @@
 # How to use the WC MTP pipelines
 
-This guide walks through setup, the main `run.sh` workflow, active learning, and individual scripts.
+Step-by-step setup, the main `run.sh` workflow, active learning, and script reference.
+
+Related docs:
+
+- [CONFIGURATION.md](CONFIGURATION.md) — hyperparameters and environment overrides  
+- [ACTIVE_LEARNING.md](ACTIVE_LEARNING.md) — AL loop in depth  
+- [DATA_LAYOUT.md](DATA_LAYOUT.md) — directory layout and gitignore  
+
+---
 
 ## 1. Install dependencies
 
 ### MLIP-2
 
 ```bash
-# Example layout after install
 export MLIP_ROOT="${HOME}/software/mlip-2"
 export PATH="${MLIP_ROOT}/bin:${PATH}"
-which mlp   # must resolve
+which mlp
 ls "${MLIP_ROOT}/untrained_mtps/"   # level templates 02.mtp … 28.mtp
 ```
 
-Override in the shell if MLIP lives elsewhere:
+If MLIP lives elsewhere:
 
 ```bash
 export MLIP_ROOT=/path/to/mlip-2
@@ -23,14 +30,16 @@ export MLP="${MLIP_ROOT}/bin/mlp"
 
 ### Python
 
-Scripts use Python 3 with the standard library only (`merge_cfg.py`, `subsample_cfg.py`, `validate_mtp.py`, `prepare_mtp_template.py`).
+Scripts use **Python 3** with the standard library only:
+
+- `merge_cfg.py`, `subsample_cfg.py`, `validate_mtp.py`, `prepare_mtp_template.py`
 
 ### Local DFT data (not in git)
 
 Keep large VASP outputs **outside git**. Typical layout next to `run.sh`:
 
 ```text
-wc-mtp-workflows/
+wc-MTP-workflows/
   run.sh
   scripts/
   templates/
@@ -60,10 +69,10 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 
 This runs:
 
-1. **Template** — ensure `templates/WC_L20.mtp` (or regenerate from MLIP untrained MTPs).
-2. **Dataset** — convert AIMD `OUTCAR`s + `datasets/sources.conf` → `datasets/initial/train.cfg`.
-3. **Train** — linear MTP fit → `active_learning/WC_L20_trained.mtp`.
-4. **Validate** — parse `mlp calc-errors` logs against thresholds.
+1. **Template** — ensure `templates/WC_L20.mtp` (or regenerate from MLIP untrained MTPs).  
+2. **Dataset** — convert AIMD `OUTCAR`s + `datasets/sources.conf` → `datasets/initial/train.cfg`.  
+3. **Train** — linear MTP fit → `active_learning/WC_L20_trained.mtp`.  
+4. **Validate** — parse `mlp calc-errors` logs against thresholds.  
 
 Logs go to `logs/run_YYYYMMDD_HHMMSS.log`.
 
@@ -102,10 +111,10 @@ MTP_LEVEL=22 ./run.sh --skip-dataset
 
 ### What it does
 
-1. Converts each `vac_W_*/OUTCAR` to staging `.cfg` via `mlp convert-cfg --input-format=vasp-outcar`.
-2. Subsamples high-T trajectories more densely (`HIGH_T_STRIDE`, default 25 above 1800 K; else `SUBSAMPLE_STRIDE` 50).
-3. Merges optional entries from `datasets/sources.conf`.
-4. Writes `datasets/initial/train.cfg` (and `train_full.cfg` / manifest under `datasets/initial/`).
+1. Converts each `vac_W_*/OUTCAR` to staging `.cfg` via `mlp convert-cfg --input-format=vasp-outcar`.  
+2. Subsamples high-T trajectories more densely (`HIGH_T_STRIDE`, default 25 above 1800 K; else `SUBSAMPLE_STRIDE` 50).  
+3. Merges optional entries from `datasets/sources.conf`.  
+4. Writes `datasets/initial/train.cfg` (and `train_full.cfg` / manifest under `datasets/initial/`).  
 
 ### `datasets/sources.conf` format
 
@@ -116,18 +125,20 @@ defect:cfg:datasets/static/defects.cfg
 surface:dir:/path/to/surface_cfgs/
 ```
 
-- **category**: `bulk`, `defect`, `high_t`, `close_cc`, `surface`, `pathway` (composition tracking).
-- **kind**: `outcar` | `cfg` | `dir`.
-- **path**: absolute or project-relative.
+| Field | Values |
+|-------|--------|
+| **category** | `bulk`, `defect`, `high_t`, `close_cc`, `surface`, `pathway` |
+| **kind** | `outcar` \| `cfg` \| `dir` |
+| **path** | Absolute or project-relative |
 
 Target mix (guidance only): ~500–2000 structures total; see comments in `sources.conf`.
 
 ### Recommended VASP settings (labels)
 
-- Functional: PBE  
-- PAW: W_sv + C  
-- ENCUT: 450–500 eV  
-- k-spacing: ~0.025 Å⁻¹ (Gamma-only for very large cells if converged)
+- Functional: **PBE**  
+- PAW: **W_sv + C**  
+- ENCUT: **450–500 eV**  
+- k-spacing: **~0.025 Å⁻¹** (Gamma-only for very large cells if converged)  
 
 ---
 
@@ -145,7 +156,7 @@ Optional arguments:
 ./scripts/train_mtp.sh path/to/train.cfg path/to/output.mtp
 ```
 
-Hyperparameters (from `mtp_config.sh`):
+Key hyperparameters (from `mtp_config.sh`):
 
 ```bash
 MTP_LEVEL=20
@@ -195,46 +206,14 @@ If defect-region force RMSE stays above ~0.1 eV/Å, add AL data or raise `MTP_LE
 
 Goal: select structures where the MTP extrapolates (high maxvol grade), label with DFT, merge, retrain—until the reconstructed C–C dimer is stable (~3–4 eV lowering vs unreconstructed vacancy).
 
-### Cycle
+Short cycle:
 
-1. **Generate candidates** (MTP MD / LAMMPS / exploratory relaxation on unreconstructed W-vacancy).  
-   Dump frames as MLIP `.cfg` into `datasets/candidates/`.
+1. Dump candidate frames as MLIP `.cfg` into `datasets/candidates/`.  
+2. `./run.sh --skip-dataset --al`  
+3. Label selected configs with VASP → put `.cfg` in `datasets/labeled/`.  
+4. `./run.sh --skip-dataset --labeled datasets/labeled/my_new_labels.cfg` then AL again.  
 
-2. **Select for DFT**:
-
-   ```bash
-   ./run.sh --skip-dataset --al
-   # or with an explicit pool:
-   ./run.sh --skip-dataset --al --candidates datasets/candidates/md_frames.cfg
-   ```
-
-   This grades candidates and writes selection under `active_learning/<iter>/` (e.g. `dft_queue.cfg`, `selected.cfg`).
-
-3. **Label** selected configs with VASP (same settings as training data).  
-   Convert labels to `.cfg` and place in `datasets/labeled/`.
-
-4. **Merge + retrain**:
-
-   ```bash
-   ./run.sh --skip-dataset --labeled datasets/labeled/my_new_labels.cfg
-   # then select again
-   ./run.sh --skip-dataset --al
-   ```
-
-   Or use the loop driver:
-
-   ```bash
-   ./scripts/run_active_learning.sh
-   ./scripts/run_active_learning.sh datasets/candidates/pool.cfg
-   ```
-
-### AL thresholds (`mtp_config.sh`)
-
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `AL_SELECT_THRESHOLD` | 3.0 | Grade above which configs are candidates for DFT |
-| `AL_SELECTION_LIMIT` | 50 | Max structures per select-add (0 = unlimited) |
-| `AL_MAX_ITERATIONS` | 20 | Loop cap in `run_active_learning.sh` |
+Full details: [ACTIVE_LEARNING.md](ACTIVE_LEARNING.md).
 
 ---
 
@@ -275,6 +254,8 @@ Individual folder:
 | `scripts/run_all_trajectories.sh` | Batch per-trajectory training |
 | `scripts/train_trajectory.sh` | Single-trajectory training |
 | `scripts/submit_train.sh` | Cluster job submission helper |
+| `scripts/run_all_temperatures.sh` | Alias → `run_all_trajectories.sh` |
+| `scripts/train_temperature.sh` | Alias → `train_trajectory.sh` |
 
 ---
 
@@ -292,7 +273,7 @@ export TRAIN_CFG=/custom/path/train.cfg
 export TRAINED_MTP=/custom/path/potential.mtp
 ```
 
-Source of truth: `scripts/mtp_config.sh`.
+Full list: [CONFIGURATION.md](CONFIGURATION.md). Source of truth: `scripts/mtp_config.sh`.
 
 ---
 
@@ -317,4 +298,4 @@ These are ignored by `.gitignore` on purpose:
 - `vac_W_*` trajectory directories  
 - Generated `train.cfg`, staging pools, AL state, logs  
 
-Commit only scripts, docs, `sources.conf`, and small templates so collaborators rebuild data on their machines.
+Commit only scripts, docs, `sources.conf`, and small templates so collaborators rebuild data on their machines. See [DATA_LAYOUT.md](DATA_LAYOUT.md).

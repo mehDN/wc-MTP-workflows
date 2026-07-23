@@ -1,7 +1,12 @@
-# --- VASP / DFT outputs (never commit) ---
+# --- VASP / DFT outputs (never commit / never push) ---
+# OUTCAR: every name and path (multi-GB AIMD trajectories)
 OUTCAR
+**/OUTCAR
 OUTCAR.*
+**/OUTCAR.*
+*OUTCAR*
 vasprun.xml
+**/vasprun.xml
 CHGCAR
 WAVECAR
 CONTCAR
@@ -17,10 +22,9 @@ REPORT
 *.h5
 *.hdf5
 
-# AIMD trajectory folders (large DFT data)
+# AIMD trajectory folders (large DFT data; includes OUTCARs)
 vac_W_*/
 bulk_*/
-**/OUTCAR
 
 # --- Generated training data (large; rebuild locally) ---
 datasets/initial/staging/
@@ -45,7 +49,7 @@ active_learning/logs/**
 !active_learning/logs/.gitkeep
 
 # --- Logs and runtime ---
-logs/
+/logs/
 *.log
 nohup.out
 *.out
