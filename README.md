@@ -151,4 +151,9 @@ Collaborators rebuild datasets and potentials on their machines from local DFT d
 
 ## Citation
 
-Research workflow scripts. When publishing results, cite **MLIP/MTP** (Shapeev et al.) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`).
+If you use this repository, please cite:
+
+**Mehdi Nourazar** — WC W-Vacancy MTP Workflows  
+Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-workflows)
+
+When publishing results, also cite **MLIP/MTP** (Shapeev et al.) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`).
