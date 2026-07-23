@@ -151,7 +151,7 @@ Collaborators rebuild datasets and potentials on their machines from local DFT d
 
 ## Citation
 
-If you use this repository, please cite:
+When using this repository, please cite:
 
 **Mehdi Nourazar** — WC W-Vacancy MTP Workflows  
 Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-workflows)
