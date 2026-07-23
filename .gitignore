@@ -1,0 +1,71 @@
+# --- VASP / DFT outputs (never commit) ---
+OUTCAR
+OUTCAR.*
+vasprun.xml
+CHGCAR
+WAVECAR
+CONTCAR
+CHG
+DOSCAR
+EIGENVAL
+IBZKPT
+PCDAT
+XDATCAR
+OSZICAR
+PROCAR
+REPORT
+*.h5
+*.hdf5
+
+# AIMD trajectory folders (large DFT data)
+vac_W_*/
+bulk_*/
+**/OUTCAR
+
+# --- Generated training data (large; rebuild locally) ---
+datasets/initial/staging/
+datasets/initial/train.cfg
+datasets/initial/train_full.cfg
+datasets/initial/logs/
+datasets/initial/manifest.txt
+datasets/initial/composition.txt
+datasets/candidates/*
+!datasets/candidates/.gitkeep
+datasets/labeled/*
+!datasets/labeled/.gitkeep
+datasets/validation/*
+!datasets/validation/.gitkeep
+datasets/static/
+
+# --- Active-learning run products ---
+active_learning/**
+!active_learning/.gitkeep
+!active_learning/logs/
+active_learning/logs/**
+!active_learning/logs/.gitkeep
+
+# --- Logs and runtime ---
+logs/
+*.log
+nohup.out
+*.out
+
+# --- Python / editor ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/
+
+# --- Secrets (never commit) ---
+.env
+*.pem
+*.key
+credentials*
+.secrets/
