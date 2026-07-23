@@ -147,7 +147,7 @@ Ignored by `.gitignore` on purpose:
 - Generated `train.cfg`, staging pools, logs  
 - Trained potentials and active-learning iteration state  
 
-Collaborators rebuild datasets and potentials on their machines from local DFT data.
+Users rebuild datasets and potentials on their machines from local DFT data.
 
 ## Citation
 
