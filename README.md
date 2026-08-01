@@ -179,4 +179,23 @@ Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-
 
 Use `@software{Nourazar2026wcMTPworkflows}` with BibLaTeX, or `@misc{Nourazar2026wcMTPworkflowsMisc}` for BibTeX engines that do not support the `software` entry type.
 
-When publishing results, also cite **MLIP/MTP** (Shapeev et al.) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`).
+When publishing results, also cite **MLIP/MTP** (Shapeev) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`):
+
+**Alexander V. Shapeev**  
+*Moment Tensor Potentials: A Class of Systematically Improvable Interatomic Potentials*  
+Multiscale Modeling & Simulation **14**, 1153–1173 (2016)  
+DOI: [https://doi.org/10.1137/15M1054183](https://doi.org/10.1137/15M1054183)
+
+```bibtex
+@article{Shapeev2016MTP,
+  author  = {Shapeev, Alexander V.},
+  title   = {Moment Tensor Potentials: A Class of Systematically Improvable Interatomic Potentials},
+  journal = {Multiscale Modeling \& Simulation},
+  volume  = {14},
+  number  = {3},
+  pages   = {1153--1173},
+  year    = {2016},
+  doi     = {10.1137/15M1054183},
+  url     = {https://doi.org/10.1137/15M1054183}
+}
+```
