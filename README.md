@@ -167,14 +167,6 @@ Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-
   url       = {https://github.com/mehDN/wc-MTP-workflows},
   note      = {GitHub repository}
 }
-
-@misc{Nourazar2026wcMTPworkflowsMisc,
-  author       = {Nourazar, Mehdi},
-  title        = {wc-MTP-workflows: WC W-Vacancy MTP Workflows},
-  year         = {2026},
-  howpublished = {\url{https://github.com/mehDN/wc-MTP-workflows}},
-  note         = {GitHub repository}
-}
 ```
 
 Use `@software{Nourazar2026wcMTPworkflows}` with BibLaTeX, or `@misc{Nourazar2026wcMTPworkflowsMisc}` for BibTeX engines that do not support the `software` entry type.
