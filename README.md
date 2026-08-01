@@ -172,7 +172,7 @@ Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-
 Use `@software{Nourazar2026wcMTPworkflows}` with BibLaTeX.
 
 When publishing results, also cite **MLIP/MTP** (Shapeev) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`):
-
+ 
 **Alexander V. Shapeev**  
 *Moment Tensor Potentials: A Class of Systematically Improvable Interatomic Potentials*  
 Multiscale Modeling & Simulation **14**, 1153–1173 (2016)  
