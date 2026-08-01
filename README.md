@@ -169,7 +169,7 @@ Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-
 }
 ```
 
-Use `@software{Nourazar2026wcMTPworkflows}` with BibLaTeX, or `@misc{Nourazar2026wcMTPworkflowsMisc}` for BibTeX engines that do not support the `software` entry type.
+Use `@software{Nourazar2026wcMTPworkflows}` with BibLaTeX.
 
 When publishing results, also cite **MLIP/MTP** (Shapeev) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`):
 
