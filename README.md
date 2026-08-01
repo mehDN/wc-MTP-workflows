@@ -156,4 +156,27 @@ When using this repository, please cite:
 **Mehdi Nourazar** — WC W-Vacancy MTP Workflows  
 Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-workflows)
 
+### BibTeX
+
+```bibtex
+@software{Nourazar2026wcMTPworkflows,
+  author    = {Nourazar, Mehdi},
+  title     = {wc-MTP-workflows: WC W-Vacancy MTP Workflows},
+  year      = {2026},
+  publisher = {GitHub},
+  url       = {https://github.com/mehDN/wc-MTP-workflows},
+  note      = {GitHub repository}
+}
+
+@misc{Nourazar2026wcMTPworkflowsMisc,
+  author       = {Nourazar, Mehdi},
+  title        = {wc-MTP-workflows: WC W-Vacancy MTP Workflows},
+  year         = {2026},
+  howpublished = {\url{https://github.com/mehDN/wc-MTP-workflows}},
+  note         = {GitHub repository}
+}
+```
+
+Use `@software{Nourazar2026wcMTPworkflows}` with BibLaTeX, or `@misc{Nourazar2026wcMTPworkflowsMisc}` for BibTeX engines that do not support the `software` entry type.
+
 When publishing results, also cite **MLIP/MTP** (Shapeev et al.) and your DFT settings (PBE, ENCUT 450–500 eV recommended in `datasets/sources.conf`).
