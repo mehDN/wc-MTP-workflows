@@ -7,7 +7,8 @@
 #   ./scripts/run_all_trajectories.sh --sequential
 #
 # Environment overrides:
-#   MAX_PARALLEL   - concurrent jobs (default: 3)
+#   MAX_PARALLEL   - concurrent jobs (default: 1 when using MPI train; each job uses MPI_NPROCS)
+#   MPI_NPROCS     - ranks per train job (default: 19; see mtp_config.sh)
 #   (plus all train_trajectory.sh overrides)
 
 set -euo pipefail
@@ -15,10 +16,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TRAIN_SCRIPT="${SCRIPT_DIR}/train_trajectory.sh"
-MAX_PARALLEL="${MAX_PARALLEL:-3}"
 
 # shellcheck source=mtp_config.sh
 source "${SCRIPT_DIR}/mtp_config.sh"
+
+# Default one concurrent MPI train job so total ranks ≈ MPI_NPROCS (not MAX_PARALLEL * MPI_NPROCS).
+MAX_PARALLEL="${MAX_PARALLEL:-1}"
 
 MODE="parallel"
 if [[ "${1:-}" == "--sequential" ]]; then

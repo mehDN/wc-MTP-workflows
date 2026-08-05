@@ -5,6 +5,7 @@
 #   ./scripts/submit_train.sh vac_W_2500_ML
 #
 # The job runs as: nohup nice -n 19 train_trajectory.sh <folder>
+# Training itself uses: nice -n NICE_N mpirun -np MPI_NPROCS mlp train ...
 
 set -euo pipefail
 

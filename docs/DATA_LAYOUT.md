@@ -8,8 +8,8 @@ This repository separates **committed workflow code** from **local DFT / trainin
 
 | Path | Role |
 |------|------|
-| `run.sh` | Main orchestrator |
-| `scripts/*` | Pipeline steps |
+| `run.sh` | Main orchestrator (resume + refine) |
+| `scripts/*` | Pipeline steps (train, refine, filter, AL, …) |
 | `templates/WC_L20.mtp`, `templates/WC_L22.mtp` | Small untrained W–C MTP templates |
 | `datasets/sources.conf` | External source list (paths you edit) |
 | `docs/*.md`, `README.md` | Documentation |
@@ -33,6 +33,7 @@ This repository separates **committed workflow code** from **local DFT / trainin
 | `datasets/initial/staging/` | Per-trajectory converted `.cfg` |
 | `datasets/initial/train.cfg` | Working training set |
 | `datasets/initial/train_full.cfg` | Pre-subsample / full merge |
+| `datasets/initial/train_before_filter.cfg` | Backup before refine DFT filter |
 | `datasets/initial/manifest.txt` | Build inventory |
 | `datasets/initial/composition.txt` | Category counts |
 | `datasets/initial/logs/` | convert / merge / subsample logs |
@@ -41,18 +42,22 @@ This repository separates **committed workflow code** from **local DFT / trainin
 | `datasets/validation/*` | Holdout sets (except `.gitkeep`) |
 | `datasets/static/` | Optional static DFT cfg trees |
 
-### Active learning products
+### Active learning / refine products
 
 | Path | Role |
 |------|------|
 | `active_learning/**` | Trained `.mtp`, `.als`, per-iter grades, logs |
+| `active_learning/refine/` | Stage pots, filtered cfg, high-error subset |
+| `active_learning/workflow_state.env` | Orchestrator resume state |
+| `active_learning/logs/train_status.env` | Last train metrics |
 | exceptions | `active_learning/.gitkeep` (and empty log dir placeholders if present) |
 
-### Runtime
+### Runtime / staged binaries
 
 | Path | Role |
 |------|------|
 | `logs/` | `run_*.log`, batch job outputs |
+| `.bin/` | Staged `mlp` binary (`MLP_STAGE=1`) |
 | `*.log`, `*.out`, `nohup.out` | Misc runtime logs |
 
 ### Secrets / env
@@ -69,6 +74,7 @@ wc-MTP-workflows/                 # git clone
 ├── scripts/
 ├── templates/
 ├── docs/
+├── .bin/                         # staged mlp (local, gitignored)
 ├── datasets/
 │   ├── sources.conf              # edit paths for extra DFT
 │   ├── candidates/               # you add *.cfg for AL
@@ -77,10 +83,19 @@ wc-MTP-workflows/                 # git clone
 │   └── initial/                  # created by build_initial_dataset.sh
 │       ├── staging/
 │       ├── train.cfg
+│       ├── train_before_filter.cfg
 │       └── logs/
-├── active_learning/              # created by train / AL
+├── active_learning/              # created by train / AL / refine
 │   ├── WC_L20_trained.mtp
+│   ├── workflow_state.env
 │   ├── logs/
+│   │   ├── train.log
+│   │   ├── train_status.env
+│   │   └── calc_errors_*.log
+│   ├── refine/
+│   │   ├── WC_L20_continue_r1.mtp
+│   │   ├── train_filtered.cfg
+│   │   └── high_force_error.cfg
 │   └── iter_001/
 ├── logs/                         # orchestrator run logs
 ├── vac_W_2300/OUTCAR             # your AIMD (local)
@@ -116,18 +131,21 @@ Target mix guidance (comments in file): ~500–2000 structures total with bulk/d
 ## Regenerating ignored data after clone
 
 ```bash
-# 1. Install MLIP-2, place OUTCARs (or fill sources.conf)
+# 1. Install MLIP-2 + MPI, place OUTCARs (or fill sources.conf)
 export MLIP_ROOT=/path/to/mlip-2
 
 # 2. Build train.cfg
 ./run.sh --only dataset
 
-# 3. Train + validate
+# 3. Train + validate (+ auto-refine if needed)
 ./run.sh --skip-dataset
 
 # 4. Optional AL
 #    put pools in datasets/candidates/
-./run.sh --skip-dataset --al
+./run.sh --al
+
+# 5. After crash: just re-run (auto-resume)
+./run.sh
 ```
 
 Nothing in the ignored paths is required for a clean clone—only for continuing a **local** training campaign.
@@ -137,11 +155,11 @@ Nothing in the ignored paths is required for a clean clone—only for continuing
 ## Size and safety checklist before push
 
 - [ ] No `OUTCAR` or `vac_W_*` under version control (`git status` clean of those)  
-- [ ] No `train.cfg` / staging / trained `.mtp` staged  
-- [ ] No secrets in `sources.conf` (paths may be machine-specific; prefer relative or documented placeholders)  
+- [ ] No `train.cfg` / staging / trained `.mtp` / refine pots staged  
+- [ ] No `.bin/mlp` or secrets in `sources.conf`  
 - [ ] Only scripts, docs, templates, and `sources.conf` committed  
 
 ```bash
 git status
-git check-ignore -v vac_W_2300/OUTCAR datasets/initial/train.cfg active_learning/ 2>/dev/null || true
+git check-ignore -v vac_W_2300/OUTCAR datasets/initial/train.cfg active_learning/ .bin/ 2>/dev/null || true
 ```

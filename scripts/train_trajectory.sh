@@ -56,11 +56,12 @@ echo "Template:     ${MTP_TEMPLATE}"
 echo "Cutoff (A):   ${MTP_MIN_DIST} - ${MTP_MAX_DIST}"
 echo "Stride:       ${SUBSAMPLE_STRIDE}"
 echo "Weights:      E=${ENERGY_WEIGHT} F=${FORCE_WEIGHT} S=${STRESS_WEIGHT}"
+echo "Parallel:     nice -n ${NICE_N} ${MPIRUN} -np ${MPI_NPROCS}"
 echo
 
 if [[ "${SKIP_CONVERT:-0}" != "1" ]]; then
     echo "[1/5] Converting OUTCAR -> train_full.cfg"
-    nice -n 19 "${MLP}" convert-cfg --input-format=vasp-outcar "${OUTCAR}" "${TRAIN_FULL}" \
+    run_mlp_serial convert-cfg --input-format=vasp-outcar "${OUTCAR}" "${TRAIN_FULL}" \
         2>&1 | tee "${LOGDIR}/convert.log"
 else
     echo "[1/5] Skipping conversion (SKIP_CONVERT=1)"
@@ -93,9 +94,10 @@ fi
 
 echo "[3/5] Preparing initial MTP"
 cp "${MTP_TEMPLATE}" "${INIT_MTP}"
-nice -n 19 "${MLP}" mindist "${TRAIN_CFG_LOCAL}" --update-mindist 2>&1 | tee "${LOGDIR}/mindist.log"
+# mindist rewrites the .cfg in place and is not MPI-safe.
+run_mlp_serial mindist "${TRAIN_CFG_LOCAL}" 2>&1 | tee "${LOGDIR}/mindist.log"
 
-echo "[4/5] Training MTP"
+echo "[4/5] Training MTP (np=${MPI_NPROCS})"
 TRAIN_ARGS=(
     train "${INIT_MTP}" "${TRAIN_CFG_LOCAL}"
     --trained-pot-name="${TRAINED_MTP_LOCAL}"
@@ -112,7 +114,7 @@ if [[ "${SCALE_BY_FORCE}" != "0" ]]; then
     TRAIN_ARGS+=(--scale-by-force="${SCALE_BY_FORCE}")
 fi
 
-nice -n 19 "${MLP}" "${TRAIN_ARGS[@]}" \
+run_mlp "${TRAIN_ARGS[@]}" \
     2>&1 | tee "${LOGDIR}/train.log"
 
 if [[ ! -f "${TRAINED_MTP_LOCAL}" ]]; then
@@ -121,7 +123,7 @@ if [[ ! -f "${TRAINED_MTP_LOCAL}" ]]; then
 fi
 
 echo "[5/5] Calculating training errors"
-nice -n 19 "${MLP}" calc-errors "${TRAINED_MTP_LOCAL}" "${TRAIN_CFG_LOCAL}" \
+run_mlp calc-errors "${TRAINED_MTP_LOCAL}" "${TRAIN_CFG_LOCAL}" \
     2>&1 | tee "${ERRORS_LOG}"
 
 echo

@@ -48,6 +48,12 @@ fi
 echo "=== Active learning loop (max ${AL_MAX_ITERATIONS} iterations) ==="
 echo "Candidates: ${CANDIDATE_CFG}"
 echo "Labeled dir: ${AL_LABELED_DIR}/"
+# Prefer high-force-error subset from refine as extra candidate material
+HIGH_ERR_CFG="${MTP_AL_DIR}/refine/high_force_error.cfg"
+if [[ "${AL_PREFER_HIGH_FORCE_ERROR}" == "1" && -f "${HIGH_ERR_CFG}" && -s "${HIGH_ERR_CFG}" ]]; then
+    echo "High-force-error subset available: ${HIGH_ERR_CFG}"
+    echo "  (already DFT-labeled; merge into train if not already present, or use as AL focus)"
+fi
 echo
 
 for ((iter=1; iter<=AL_MAX_ITERATIONS; iter++)); do

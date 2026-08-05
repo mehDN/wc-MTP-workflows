@@ -51,17 +51,18 @@ echo "Grade threshold: ${AL_SELECT_THRESHOLD} (add configs above this)"
 echo "MTP:        ${TRAINED_MTP}"
 echo "Train set:  ${TRAIN_CFG}"
 echo "Candidates: ${CANDIDATE_CFG}"
+echo "Parallel:   nice -n ${NICE_N} ${MPIRUN} -np ${MPI_NPROCS}"
 echo
 
-echo "[1/3] Calculating maxvol grades"
-nice -n 19 "${MLP}" calc-grade "${TRAINED_MTP}" "${TRAIN_CFG}" "${CANDIDATE_CFG}" "${GRADED_CFG}" \
+echo "[1/3] Calculating maxvol grades (np=${MPI_NPROCS})"
+run_mlp calc-grade "${TRAINED_MTP}" "${TRAIN_CFG}" "${CANDIDATE_CFG}" "${GRADED_CFG}" \
     --als-filename="${ALS_ITER}" \
     --init-threshold="${AL_INIT_THRESHOLD}" \
     --select-threshold="${AL_SELECT_THRESHOLD}" \
     --swap-threshold="${AL_SWAP_THRESHOLD}" \
     2>&1 | tee "${ITER_DIR}/calc_grade.log"
 
-echo "[2/3] Selecting configurations to add (gamma / maxvol)"
+echo "[2/3] Selecting configurations to add (gamma / maxvol, np=${MPI_NPROCS})"
 SELECT_ARGS=(
     select-add "${TRAINED_MTP}" "${TRAIN_CFG}" "${CANDIDATE_CFG}" "${DFT_QUEUE}"
     --als-filename="${ALS_ITER}"
@@ -75,7 +76,7 @@ if [[ "${AL_SELECTION_LIMIT}" != "0" ]]; then
     SELECT_ARGS+=(--selection-limit="${AL_SELECTION_LIMIT}")
 fi
 
-nice -n 19 "${MLP}" "${SELECT_ARGS[@]}" \
+run_mlp "${SELECT_ARGS[@]}" \
     2>&1 | tee "${ITER_DIR}/select_add.log"
 
 # Persist ALS state for subsequent iterations

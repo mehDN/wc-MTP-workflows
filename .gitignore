@@ -30,6 +30,7 @@ bulk_*/
 datasets/initial/staging/
 datasets/initial/train.cfg
 datasets/initial/train_full.cfg
+datasets/initial/train_before_filter.cfg
 datasets/initial/logs/
 datasets/initial/manifest.txt
 datasets/initial/composition.txt
@@ -41,12 +42,15 @@ datasets/validation/*
 !datasets/validation/.gitkeep
 datasets/static/
 
-# --- Active-learning run products ---
+# --- Active-learning / refine run products ---
 active_learning/**
 !active_learning/.gitkeep
 !active_learning/logs/
 active_learning/logs/**
 !active_learning/logs/.gitkeep
+
+# --- Staged MLIP binary (MLP_STAGE; never commit) ---
+.bin/
 
 # --- Logs and runtime ---
 /logs/

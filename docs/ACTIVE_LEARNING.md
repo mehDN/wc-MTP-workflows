@@ -18,6 +18,14 @@ If either train set or MTP is missing, run:
 ./run.sh
 ```
 
+If force RMS is still high after train, prefer refine first:
+
+```bash
+./run.sh --only refine
+# then
+./run.sh --al
+```
+
 ---
 
 ## Candidate pools
@@ -39,6 +47,21 @@ datasets/candidates/*.cfg
 
 Internal merge files (`_merged_pool.cfg`, `_aimd_staging_pool.cfg`) are skipped as inputs.
 
+### High force-error subset from refine
+
+When refine stage 3 runs, it writes:
+
+```text
+active_learning/refine/high_force_error.cfg
+```
+
+These are **already DFT-labeled** train configs with the largest MTP force errors. With `AL_PREFER_HIGH_FORCE_ERROR=1` (default), `run_active_learning.sh` notes this file so you can:
+
+- Ensure they remain in `train.cfg` (they should already be), and/or  
+- Prioritize related unlabeled MD frames near the same local environments for the next select-add  
+
+They are not unlabeled DFT work by themselves; use them as a focus map for the vacancy / high-force region.
+
 ### Generating candidates (examples)
 
 ```bash
@@ -46,7 +69,7 @@ Internal merge files (`_merged_pool.cfg`, `_aimd_staging_pool.cfg`) are skipped 
 cp my_md_frames.cfg datasets/candidates/
 
 # Or point AL at a path:
-./run.sh --skip-dataset --al --candidates /path/to/pool.cfg
+./run.sh --al --candidates /path/to/pool.cfg
 ```
 
 Helper: `scripts/select_from_md.sh` (thin helper for MD frame selection workflows).
@@ -58,9 +81,11 @@ Helper: `scripts/select_from_md.sh` (thin helper for MD frame selection workflow
 ```bash
 ./scripts/active_learning.sh <candidate.cfg> [iteration_label]
 # or via orchestrator:
-./run.sh --skip-dataset --al
-./run.sh --skip-dataset --al --candidates datasets/candidates/md_frames.cfg
+./run.sh --al
+./run.sh --al --candidates datasets/candidates/md_frames.cfg
 ```
+
+Grade and select-add run under **MPI** (`run_mlp`, default `MPI_NPROCS=19`).
 
 ### Steps inside `active_learning.sh`
 
@@ -98,10 +123,10 @@ datasets/labeled/my_iter001.cfg
 ### Explicit labeled file
 
 ```bash
-./run.sh --skip-dataset --labeled datasets/labeled/my_iter001.cfg
+./run.sh --labeled datasets/labeled/my_iter001.cfg
 ```
 
-This merges labels into `train.cfg` (via the workflow) and retrains.
+This merges labels into `train.cfg` (via the workflow) and retrains. With auto-resume, completed upstream steps are skipped.
 
 ### Multi-iteration driver
 
@@ -129,7 +154,7 @@ If zero selections are returned, the loop treats the pool as covered for the cur
    datasets/candidates/*.cfg
               │
               ▼
-   ./run.sh --skip-dataset --al
+   ./run.sh --al          # or --only refine first if force RMS high
               │
               ▼
    active_learning/iter_*/dft_queue.cfg  ──►  VASP labels
@@ -138,10 +163,10 @@ If zero selections are returned, the loop treats the pool as covered for the cur
    datasets/labeled/*.cfg
               │
               ▼
-   ./run.sh --skip-dataset --labeled datasets/labeled/new.cfg
+   ./run.sh --labeled datasets/labeled/new.cfg
               │
               ▼
-   validate; if dimer not stable or forces high → next AL round
+   validate / refine; if dimer not stable or forces high → next AL round
               │
               ▼
    optional: MTP_LEVEL=22 if defect force RMSE > 0.1 eV/Å
@@ -156,9 +181,10 @@ If zero selections are returned, the loop treats the pool as covered for the cur
 | `AL_SELECT_THRESHOLD` | 3.0 | Lower (e.g. 2.0–2.5) to select more aggressively early; raise when pool is noisy |
 | `AL_SELECTION_LIMIT` | 50 | Raise for large DFT budgets; lower for small clusters |
 | `AL_MAX_ITERATIONS` | 20 | Safety cap on automated driver |
+| `AL_PREFER_HIGH_FORCE_ERROR` | 1 | Surface refine high-error subset as AL focus |
 
 ```bash
-AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --skip-dataset --al
+AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 ```
 
 ---
@@ -170,9 +196,12 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --skip-dataset --al
 | `active_learning/WC_L20_trained.mtp` | Current potential |
 | `active_learning/logs/train.log` | Last fit log |
 | `active_learning/logs/calc_errors_train.log` | Training-set errors |
+| `active_learning/logs/train_status.env` | Last train metrics (`FORCE_RMS`, `STEP_LIMIT`, …) |
+| `active_learning/refine/high_force_error.cfg` | High force-error DFT subset (from refine) |
 | `active_learning/iter_*/dft_queue.cfg` | Structures to label |
 | `active_learning/iter_*/calc_grade.log` | Grade statistics |
 | `datasets/initial/train.cfg` | Growing training set |
+| `active_learning/workflow_state.env` | Orchestrator resume state |
 
 ---
 
@@ -182,7 +211,8 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --skip-dataset --al
 2. Sample **close C–C** distances (category `close_cc` in `sources.conf`) so the dimer well is constrained.  
 3. Keep some **bulk** and **high-T** AIMD frames so bulk elastic properties do not drift.  
 4. Prefer consistent supercell sizes or explicitly mix sizes to capture finite-size vacancy–vacancy effects (this repo already tracks multiple `vac_W_*` folders).  
-5. Stop adding data when grades on your MD pool fall below the select threshold and dimer energetics are stable under retrain.
+5. Stop adding data when grades on your MD pool fall below the select threshold and dimer energetics are stable under retrain.  
+6. If BFGS keeps hitting step limits after new labels, run refine before another AL round.
 
 ---
 
@@ -195,3 +225,4 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --skip-dataset --al
 | Too many DFT jobs | Lower `AL_SELECTION_LIMIT` |
 | Forces good on train, bad on vacancy MD | Candidate pool not covering the reconstruction path |
 | Template / level mismatch | Set `MTP_LEVEL` consistently; regenerate template via `ensure_mtp_template` |
+| MPI launch failures mid-AL | Check `MLP_STAGE`, `ensure_mlp`, renew Kerberos if needed |

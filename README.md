@@ -9,6 +9,10 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 ## Features
 
 - One-command pipeline: template → dataset → train → validate
+- **Auto-resume** after crashes (`workflow_state.env`; skip completed steps)
+- **MPI-parallel** train / grade / select-add (`MPI_NPROCS`, default 19)
+- **MLP staging** onto project filesystem (survives multi-day jobs when `$HOME` NFS+krb5 tickets expire)
+- **Auto-refine** when validation fails: more BFGS + rescale, force-weighted retrain, high-error subset, mindist check
 - Optional **active learning** (maxvol / extrapolation grade → DFT label → retrain)
 - Optional **per-trajectory** MTP fits for diagnostics
 - Shared hyperparameters in `scripts/mtp_config.sh` (all overridable via env)
@@ -18,17 +22,21 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 
 ```text
 wc-MTP-workflows/
-├── run.sh                      # Main entry point
+├── run.sh                      # Main entry point (resume + refine aware)
 ├── README.md
 ├── docs/
 │   ├── HOW_TO_USE.md           # Step-by-step usage
 │   ├── CONFIGURATION.md        # Hyperparameters & env overrides
 │   ├── ACTIVE_LEARNING.md      # AL loop details
+│   ├── REFINE.md               # Post-train refine sequence
 │   └── DATA_LAYOUT.md          # Paths, gitignore, local data
 ├── scripts/
 │   ├── mtp_config.sh           # Shared config (source of truth)
 │   ├── build_initial_dataset.sh
-│   ├── train_mtp.sh
+│   ├── train_mtp.sh            # Fit / continue from fitted pot
+│   ├── refine_mtp.sh           # BFGS continue + force retrain + high-error
+│   ├── filter_cfg.py           # Drop bad / irrelevant DFT configs
+│   ├── extract_high_error_cfg.py
 │   ├── validate_mtp.py
 │   ├── active_learning.sh
 │   ├── run_active_learning.sh
@@ -40,15 +48,16 @@ wc-MTP-workflows/
 │   ├── sources.conf            # Extra DFT sources (committed)
 │   ├── candidates/             # AL candidate pools (local)
 │   └── labeled/                # DFT-labeled AL configs (local)
-└── active_learning/            # Trained MTPs & AL state (local)
+└── active_learning/            # Trained MTPs, refine/, state (local)
 ```
 
 ## Prerequisites
 
 | Dependency | Role |
 |------------|------|
-| [MLIP-2](https://gitlab.com/ashapeev/mlip-2) | `mlp` binary on `PATH` (or set `MLIP_ROOT`) |
-| Python 3 | Stdlib-only helpers (`merge_cfg.py`, `validate_mtp.py`, …) |
+| [MLIP-2](https://gitlab.com/ashapeev/mlip-2) | `mlp` binary (set `MLIP_ROOT` / `MLP`) |
+| MPI (`mpirun`) | Parallel train / AL (optional serial with `MPI_NPROCS=1`) |
+| Python 3 | Stdlib-only helpers (`merge_cfg.py`, `filter_cfg.py`, `validate_mtp.py`, …) |
 | VASP (or equivalent DFT) | Label AL selections; produce AIMD `OUTCAR`s |
 
 ```bash
@@ -56,7 +65,10 @@ export MLIP_ROOT="${HOME}/software/mlip-2"
 export MLP="${MLIP_ROOT}/bin/mlp"
 export PATH="${MLIP_ROOT}/bin:${PATH}"
 which mlp
+which mpirun
 ```
+
+On clusters where `$HOME` is NFS with Kerberos, the workflow **stages** `mlp` into `.bin/mlp` under the project tree by default (`MLP_STAGE=1`) so multi-day `mpirun` jobs still exec after tickets expire.
 
 ## Quick start
 
@@ -70,15 +82,20 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 #   vac_W_2500_ML/OUTCAR
 # Or list extra paths in datasets/sources.conf
 
-./run.sh                 # dataset → train → validate
+./run.sh                 # dataset → train → validate (+ auto-refine if needed)
 ./run.sh --al            # same + active-learning selection
+./run.sh                 # re-run after crash: auto-resumes from failed step
 ```
 
 ## Pipeline overview
 
 ```text
-  Template (L20/L22)  →  Dataset (OUTCAR→cfg)  →  Train (mlp)  →  Validate
+  Template (L20/L22)  →  Dataset (OUTCAR→cfg)  →  Train (MPI mlp)  →  Validate
                                                               │
+                         ┌────────────────────────────────────┤ fail / step limit
+                         ▼                                    │
+                    Refine (filter → continue BFGS →          │
+                     force retrain → high-error → mindist)    │
                                                               ▼
                                                     Active learning
                                                     (select → DFT → merge → retrain)
@@ -88,25 +105,50 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 |------|-----------|--------------|
 | 1. Template | Ensure `templates/WC_L{level}.mtp` | Template file |
 | 2. Dataset | Convert AIMD + `sources.conf` | `datasets/initial/train.cfg` |
-| 3. Train | Linear MTP fit | `active_learning/WC_L20_trained.mtp` |
+| 3. Train | Linear MTP fit (continues fitted pot if found) | `active_learning/WC_L20_trained.mtp` |
 | 4. Validate | Parse `calc-errors` vs thresholds | Pass/fail gate |
+| 4b. Refine | More BFGS, force retrain, high-error subset | `active_learning/refine/*.mtp` |
 | 5. AL (opt.) | Grade + select-add | `active_learning/iter_*/dft_queue.cfg` |
 | 6. Per-traj (opt.) | One MTP per AIMD folder | Per-folder potentials |
+
+### Resume behavior
+
+By default (`AUTO_RESUME=1`), re-running `./run.sh` after a crash:
+
+- Skips steps already complete (dataset present, pot trained + errors logged, …)
+- Continues train post-processing if BFGS finished but `calc-errors` died
+- Restores planned `--al` / `--per-traj` / refine intents from `active_learning/workflow_state.env`
+
+Force a full re-plan: `./run.sh --fresh`. Force random-init train (ignore fitted pots): `TRAIN_FRESH=1 ./run.sh --skip-dataset`.
 
 ## Common commands
 
 ```bash
 ./run.sh --help
-./run.sh                          # full: dataset + train + validate
-./run.sh --skip-dataset           # retrain existing train.cfg
+./run.sh                          # full: dataset + train + validate (+ auto-refine)
+./run.sh                          # after crash: resume incomplete step
+./run.sh --fresh                  # ignore resume skips; re-run selected steps
+./run.sh --skip-dataset           # retrain / continue existing train.cfg
 ./run.sh --only dataset           # build dataset only
+./run.sh --only refine            # continue BFGS / force retrain from existing pot
+./run.sh --refine                 # force refine after train
+./run.sh --skip-refine            # never auto-refine on validate fail
 ./run.sh --al                     # train + AL
 ./run.sh --al --candidates path/to/pool.cfg
 ./run.sh --labeled datasets/labeled/new.cfg   # merge labels before retrain
 ./run.sh --per-traj               # also fit per-AIMD-trajectory MTPs
 
-# Hyperparameter overrides
+# Hyperparameter / parallel overrides
 MTP_LEVEL=22 MTP_MAX_DIST=6.5 FORCE_WEIGHT=0.15 ./run.sh
+MPI_NPROCS=8 ./run.sh --skip-dataset
+TRAIN_FRESH=1 ./run.sh --skip-dataset   # random init; ignore trained pots
+```
+
+Direct refine (without full orchestrator):
+
+```bash
+./scripts/refine_mtp.sh
+./scripts/refine_mtp.sh datasets/initial/train.cfg active_learning/WC_L20_trained.mtp
 ```
 
 Legacy wrapper:
@@ -127,6 +169,9 @@ From `scripts/mtp_config.sh` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 | `MTP_MAX_DIST` | 6.0 Å | Cutoff (try 5.0–6.5) |
 | `MTP_RADIAL_BASIS_SIZE` | 11 | Chebyshev radial functions |
 | `FORCE_WEIGHT` | 0.1 | Energy / force / stress weights |
+| `MPI_NPROCS` | 19 | Ranks for train / AL |
+| `AUTO_RESUME` | 1 | Skip completed workflow steps |
+| `AUTO_REFINE` | 1 | Run refine when validation fails |
 | `AL_SELECT_THRESHOLD` | 3.0 | Maxvol grade for select-add |
 | Force RMS target | ≤ 0.08 eV/Å | Validation gate |
 
@@ -134,8 +179,9 @@ From `scripts/mtp_config.sh` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 | Doc | Contents |
 |-----|----------|
-| [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) | Full walkthrough: setup, train, AL, scripts |
+| [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) | Full walkthrough: setup, train, resume, refine, AL |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All env vars and defaults |
+| [docs/REFINE.md](docs/REFINE.md) | Post-train refine sequence (BFGS continue, force retrain) |
 | [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | Select → label → merge → retrain loop |
 | [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) | Local data paths and what Git ignores |
 
@@ -145,7 +191,8 @@ Ignored by `.gitignore` on purpose:
 
 - VASP `OUTCAR` / charge / wavefunction files and `vac_W_*` trajectory folders  
 - Generated `train.cfg`, staging pools, logs  
-- Trained potentials and active-learning iteration state  
+- Trained potentials, refine intermediates, and active-learning iteration state  
+- Staged binary `.bin/mlp`  
 
 Users rebuild datasets and potentials on their machines from local DFT data.
 

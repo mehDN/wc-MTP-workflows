@@ -66,7 +66,7 @@ convert_outcar() {
     fi
     echo "[convert] ${outcar}"
     rm -f "${out}"
-    if ! nice -n 19 "${MLP}" convert-cfg --input-format=vasp-outcar "${outcar}" "${out}" \
+    if ! run_mlp_serial convert-cfg --input-format=vasp-outcar "${outcar}" "${out}" \
         >> "${WORK}/logs/convert.log" 2>&1; then
         echo "  WARNING: conversion failed for ${outcar}" >&2
         rm -f "${out}"
