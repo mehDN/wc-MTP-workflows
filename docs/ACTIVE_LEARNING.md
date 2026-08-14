@@ -1,8 +1,8 @@
 # Active learning for the WC W-vacancy MTP
 
-## What is active learning?
+## Introduction to active learning
 
-In machine learning, **active learning** is a paradigm in which the model selectively queries the most informative unlabeled examples for labeling (by an “oracle” such as a human or an expensive computation), rather than labeling data randomly or passively. The goal is to reach high accuracy with far fewer labels—especially valuable when labeling is costly.
+In machine learning, **active learning** is a paradigm in which the model selectively queries the most informative unlabeled examples for labeling, rather than labeling data randomly or passively. The goal is to reach high accuracy with far fewer labels, especially valuable when labeling is costly.
 
 Typical loop:
 1. Train on the current labeled set.
