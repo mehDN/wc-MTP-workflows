@@ -1,8 +1,55 @@
 # Active learning for the WC W-vacancy MTP
 
-Active learning (AL) expands the training set with configurations where the current potential **extrapolates**—measured by MLIP maxvol / extrapolation **grade**. Selected frames are labeled with DFT, merged into `train.cfg`, and the MTP is retrained.
+## What is active learning?
 
-Physical goal for this project: stabilize the **planar C–C dimer reconstruction** of a W vacancy relative to the unreconstructed vacancy (~3–4 eV energy lowering once the potential is trustworthy).
+In machine learning, **active learning** is a paradigm in which the model selectively queries the most informative unlabeled examples for labeling (by an “oracle” such as a human or an expensive computation), rather than labeling data randomly or passively. The goal is to reach high accuracy with far fewer labels—especially valuable when labeling is costly.
+
+Typical loop:
+1. Train on the current labeled set.
+2. Score a pool (or stream) of unlabeled candidates for informativeness.
+3. Query labels for the highest-scoring candidates.
+4. Add the new labels and retrain.
+
+### Common scenarios
+- **Membership query synthesis** — the model invents new instances and asks for labels.
+- **Stream-based selective sampling** — data arrives sequentially; the model decides on-the-fly whether to query each point.
+- **Pool-based sampling** — the model selects the best subset from a large fixed pool of unlabeled data (most common in practice).
+
+### Common query strategies
+- **Uncertainty sampling** — select points where the model is least confident (least-confident, margin, or entropy).
+- **Query-by-committee (QBC)** — train an ensemble and pick points with highest disagreement.
+- **Expected model change** — select points that would most alter the current model parameters.
+- **Expected error / variance reduction** — choose points expected to most reduce generalization error or variance.
+- **D-optimality / MaxVol-based methods** — select points that maximally increase the volume (determinant) of the information matrix / active set in feature (descriptor) space. This produces an *extrapolation grade*.
+- Diversity / representativeness / hybrid strategies that combine uncertainty with coverage of the data distribution.
+
+In the domain of machine-learning interatomic potentials (MLIPs), the MaxVol / extrapolation-grade family is especially popular for linear models such as Moment Tensor Potentials (MTPs).
+
+---
+
+## Method used in this repository
+
+This workflow uses the **MLIP MaxVol / extrapolation-grade** strategy (native to the MLIP-2 package).
+
+- A candidate pool of structures is scored with `mlp calc-grade`.
+- Configurations whose **extrapolation grade** exceeds `AL_SELECT_THRESHOLD` (default **3.0**) are selected by `mlp select-add` (optionally capped by `AL_SELECTION_LIMIT`).
+- Selected structures are written to `dft_queue.cfg`, labeled with DFT, merged into `train.cfg`, and the MTP is retrained.
+
+The extrapolation grade \(\gamma\) is derived from the **D-optimality criterion**. An “active set” of the most linearly independent configurations (in the MTP descriptor basis) is maintained. For a new configuration the grade measures how much it would expand the volume of that active set:
+
+- \(\gamma < 1\): interpolation (already well-covered),
+- \(\gamma > 1\): extrapolation (outside the current span; potentially informative).
+
+Higher grades indicate more valuable candidates for improving the potential. The approach is computationally cheap (matrix operations) and correlates well with true prediction error.
+
+### Why MaxVol / extrapolation grade?
+
+- **MTP is linear** in its basis functions. The geometric MaxVol criterion is therefore a natural, theoretically grounded uncertainty measure—no ensemble of models is required.
+- It is the **standard, well-validated active-learning machinery** of the MLIP package (Shapeev et al.).
+- DFT labels are expensive; MaxVol efficiently identifies configurations that most expand the training coverage, minimizing the number of DFT calculations needed for a trustworthy potential.
+- The physical target of this repository is reliable description of the **planar C–C dimer reconstruction** of a W vacancy in \(\alpha\)-WC. Reliable extrapolation control is essential for defect and pathway configurations that lie outside the initial AIMD training distribution.
+
+Physical goal: stabilize the planar C–C dimer reconstruction of a W vacancy relative to the unreconstructed vacancy (~3–4 eV energy lowering once the potential is trustworthy).
 
 ---
 
@@ -226,3 +273,11 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 | Forces good on train, bad on vacancy MD | Candidate pool not covering the reconstruction path |
 | Template / level mismatch | Set `MTP_LEVEL` consistently; regenerate template via `ensure_mtp_template` |
 | MPI launch failures mid-AL | Check `MLP_STAGE`, `ensure_mlp`, renew Kerberos if needed |
+
+---
+
+## References
+
+- Shapeev, A. V. (2016). *Moment Tensor Potentials: A Class of Systematically Improvable Interatomic Potentials*. Multiscale Modeling & Simulation, 14(3), 1153–1173. https://doi.org/10.1137/15M1054183
+- Podryabinkin & Shapeev / MLIP package documentation on active learning and the MaxVol algorithm (extrapolation grade based on D-optimality).
+- Settles, B. (2010). *Active Learning Literature Survey* (general background on active-learning strategies).

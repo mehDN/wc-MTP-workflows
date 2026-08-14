@@ -13,7 +13,10 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 - **MPI-parallel** train / grade / select-add (`MPI_NPROCS`, default 19)
 - **MLP staging** onto project filesystem (survives multi-day jobs when `$HOME` NFS+krb5 tickets expire)
 - **Auto-refine** when validation fails: more BFGS + rescale, force-weighted retrain, high-error subset, mindist check
-- Optional **active learning** (maxvol / extrapolation grade → DFT label → retrain)
+- Optional **active learning** based on the MLIP **MaxVol / extrapolation-grade** strategy (D-optimality)
+  - Selects configurations that most expand the training coverage in descriptor space
+  - Selected frames are DFT-labeled, merged, and the MTP is retrained
+  - See [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) for a full explanation of active learning, alternative algorithms, and why MaxVol is used here
 - Optional **per-trajectory** MTP fits for diagnostics
 - Shared hyperparameters in `scripts/mtp_config.sh` (all overridable via env)
 - External DFT sources via `datasets/sources.conf` with composition categories
@@ -182,7 +185,7 @@ From `scripts/mtp_config.sh` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 | [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) | Full walkthrough: setup, train, resume, refine, AL |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All env vars and defaults |
 | [docs/REFINE.md](docs/REFINE.md) | Post-train refine sequence (BFGS continue, force retrain) |
-| [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | Select → label → merge → retrain loop |
+| [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | What is active learning, query strategies, why MaxVol/extrapolation grade, and the select → label → merge → retrain loop |
 | [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) | Local data paths and what Git ignores |
 
 ## What is not committed
