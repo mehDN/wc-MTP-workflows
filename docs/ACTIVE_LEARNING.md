@@ -279,5 +279,13 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 ## References
 
 - Shapeev, A. V. (2016). *Moment Tensor Potentials: A Class of Systematically Improvable Interatomic Potentials*. Multiscale Modeling & Simulation, 14(3), 1153–1173. https://doi.org/10.1137/15M1054183
-- Podryabinkin & Shapeev / MLIP package documentation on active learning and the MaxVol algorithm (extrapolation grade based on D-optimality).
-- Settles, B. (2010). *Active Learning Literature Survey* (general background on active-learning strategies).
+
+- Podryabinkin, E. V., & Shapeev, A. V. (2017). *Active learning of linearly parametrized interatomic potentials*. Computational Materials Science, 140, 171–180. https://doi.org/10.1016/j.commatsci.2017.08.031  
+  (Original MaxVol / D-optimality active-learning method for linear MLIPs)
+
+- Novikov, I. S., Gubaev, K., Podryabinkin, E. V., & Shapeev, A. V. (2021). *The MLIP package: moment tensor potentials with MPI and active learning*. Machine Learning: Science and Technology, 2(2), 025002. https://doi.org/10.1088/2632-2153/abc9fe  
+  (MLIP package implementation of MTP + active learning)
+
+- Settles, B. (2009). *Active Learning Literature Survey*. Computer Sciences Technical Report 1648, University of Wisconsin–Madison.  
+  https://digital.library.wisc.edu/1793/60660  
+  (General background on active-learning strategies; technical report, no DOI)
