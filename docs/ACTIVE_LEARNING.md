@@ -257,7 +257,7 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 1. Include **unreconstructed** vacancy starts and **partially reconstructed** pathway frames in the candidate pool.  
 2. Sample **close C–C** distances (category `close_cc` in `sources.conf`) so the dimer well is constrained.  
 3. Keep some **bulk** and **high-T** AIMD frames so bulk elastic properties do not drift.  
-4. Prefer consistent supercell sizes or explicitly mix sizes to capture finite-size vacancy–vacancy effects (this repo already tracks multiple `vac_W_*` folders).  
+4. Prefer consistent supercell sizes or explicitly mix sizes to capture finite size vacancy–vacancy effects (this repo already tracks multiple `vac_W_*` folders).  
 5. Stop adding data when grades on your MD pool fall below the select threshold and dimer energetics are stable under retrain.  
 6. If BFGS keeps hitting step limits after new labels, run refine before another AL round.
 
