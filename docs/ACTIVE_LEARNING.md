@@ -252,7 +252,7 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 
 ---
 
-## Tips specific to W-vacancy / C–C dimer
+## Constraints imposed specific to W-vacancy / C–C dimer
 
 1. Include **unreconstructed** vacancy starts and **partially reconstructed** pathway frames in the candidate pool.  
 2. Sample **close C–C** distances (category `close_cc` in `sources.conf`) so the dimer well is constrained.  
