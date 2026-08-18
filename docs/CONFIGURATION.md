@@ -165,7 +165,9 @@ A cfg is **labeled** when it has a numeric `Energy` and `AtomData` force columns
 | `AL_SELECT_THRESHOLD` | `3.0` | Add configs with grade above this (try 2.0–4.0) |
 | `AL_SWAP_THRESHOLD` | `1.0000001` | Swap threshold for maxvol |
 | `AL_GRADE_THRESHOLD` | same as select | Alias for grade threshold |
-| `AL_SELECTION_LIMIT` | `50` | Max structures per select-add (`0` = unlimited) |
+| `AL_SELECTION_LIMIT` | `50` | Max structures per select-add for **unlabeled** pools (`0` = unlimited) |
+| `AL_LABELED_SELECTION_LIMIT` | `0` | Cap when the candidate pool is already DFT-labeled leftover AIMD (`0` = take the full MaxVol set; avoids another 9 h select-add for the next 50) |
+| `AL_RETRAIN_MAX_ITER` | `400` | BFGS budget after an AL / `--labeled` merge (a fitted pot does not need a 2000-iter refine) |
 | `AL_MAX_ITERATIONS` | `20` | Cap for `run_active_learning.sh` |
 | `AL_PREFER_HIGH_FORCE_ERROR` | `1` | Announce refine high-error subset as AL focus material |
 | `AL_PAUSE_EXIT` | `10` | Exit code when unlabeled selections still need VASP (`run.sh` records `CURRENT_STATUS=paused`) |

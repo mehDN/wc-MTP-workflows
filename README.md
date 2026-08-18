@@ -16,7 +16,8 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 - Optional **active learning** based on the MLIP **MaxVol / extrapolation-grade** strategy (D-optimality)
   - Selects configurations that most expand the training coverage in descriptor space
   - If a selection already has VASP `Energy` + forces (leftover AIMD/OUTCAR frames), it is **merged and retrained** — no new DFT
-  - Retrain after a merge always runs BFGS (`TRAIN_FORCE=1`); an existing pot is not treated as done, and `merged.ok` is written only after the pot matches the new `train.cfg`
+  - Retrain after a merge always runs BFGS (`TRAIN_FORCE=1`, `AL_RETRAIN_MAX_ITER=400`); an existing pot is not treated as done, and `merged.ok` is written only after the pot matches the new `train.cfg`
+  - Already-labeled leftover AIMD is not capped at 50 (`AL_LABELED_SELECTION_LIMIT=0`) so one select-add can merge the full MaxVol set
   - New VASP is requested only for unlabeled MD/exploratory frames; that pause is recorded as `paused`, not a crash
   - Resume reuses `iter_NNN/dft_queue.cfg` so grade/select is not rerun
   - See [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) for the loop, MaxVol rationale, and when DFT is actually needed

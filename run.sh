@@ -491,6 +491,7 @@ if [[ -n "${LABELED_CFG}" ]]; then
     cp "${MERGED}" "${TRAIN_CFG}"
     log "Updated training set: ${TRAIN_CFG}"
     export TRAIN_FORCE=1
+    export EFFECTIVE_MAX_ITER="${EFFECTIVE_MAX_ITER:-${AL_RETRAIN_MAX_ITER}}"
     if [[ "${DO_TRAIN}" != "1" && "${DO_AL}" != "1" ]]; then
         if [[ "${USER_SET_TRAIN}" == "1" ]]; then
             log "WARNING: --labeled updated train.cfg but train is disabled; pot is now stale."

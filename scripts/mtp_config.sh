@@ -89,6 +89,12 @@ run_mlp() {
     # Soft nofile is often 1024; many MPI ranks need more sockets/fds.
     ulimit -n 65536 2>/dev/null || true
 
+    # Line-buffer mlp so BFGS / select-add progress appears under `tee`.
+    local mlp_cmd=("${MLP}")
+    if command -v stdbuf >/dev/null 2>&1; then
+        mlp_cmd=(stdbuf -oL -eL "${MLP}")
+    fi
+
     # -genv forces fabric into all ranks (login env often has I_MPI_FABRICS=shm:tcp).
     # shellcheck disable=SC2086
     nice -n "${NICE_N}" "${MPIRUN}" -np "${MPI_NPROCS}" \
@@ -96,7 +102,7 @@ run_mlp() {
         -genv I_MPI_FALLBACK "${I_MPI_FALLBACK:-0}" \
         -genv I_MPI_DYNAMIC_CONNECTION "${I_MPI_DYNAMIC_CONNECTION:-0}" \
         ${MPI_EXTRA_ARGS} \
-        "${MLP}" "$@"
+        "${mlp_cmd[@]}" "$@"
 }
 
 # Serial MLP under nice only (convert-cfg and other light ops).
@@ -209,6 +215,13 @@ AL_SELECT_THRESHOLD="${AL_SELECT_THRESHOLD:-3.0}"
 AL_SWAP_THRESHOLD="${AL_SWAP_THRESHOLD:-1.0000001}"
 AL_GRADE_THRESHOLD="${AL_GRADE_THRESHOLD:-${AL_SELECT_THRESHOLD}}"
 AL_SELECTION_LIMIT="${AL_SELECTION_LIMIT:-50}"
+# When the candidate pool is already DFT-labeled (leftover AIMD), the 50-cap
+# is a DFT budget that does not apply. 0 = unlimited (take the full MaxVol set).
+AL_LABELED_SELECTION_LIMIT="${AL_LABELED_SELECTION_LIMIT:-0}"
+# BFGS budget for AL / --labeled retrains. A fitted pot + a few dozen new
+# configs does not need a full 2000-iter refine (~days). Override per call
+# with EFFECTIVE_MAX_ITER if you want a longer fit.
+AL_RETRAIN_MAX_ITER="${AL_RETRAIN_MAX_ITER:-400}"
 AL_MAX_ITERATIONS="${AL_MAX_ITERATIONS:-20}"
 AL_PREFER_HIGH_FORCE_ERROR="${AL_PREFER_HIGH_FORCE_ERROR:-1}"
 # Exit code from run_active_learning.sh when selections still need VASP.

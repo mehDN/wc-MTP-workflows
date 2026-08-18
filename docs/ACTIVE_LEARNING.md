@@ -144,7 +144,8 @@ Grade and select-add run under **MPI** (`run_mlp`, default `MPI_NPROCS=19`).
 | 2 | `mlp select-add` | `dft_queue.cfg`, `selected.cfg`, `select_add.log` |
 
 Configs with grade above `AL_SELECT_THRESHOLD` (default **3.0**) are preferred.  
-`AL_SELECTION_LIMIT` (default **50**) caps how many are queued (`0` = unlimited).
+`AL_SELECTION_LIMIT` (default **50**) caps how many are queued from **unlabeled** pools (`0` = unlimited).  
+If the pool is leftover AIMD (`_aimd_staging_pool.cfg`, already Energy + forces), `AL_LABELED_SELECTION_LIMIT` applies instead (default **0** = take every MaxVol pick).
 
 `run_active_learning.sh` then inspects `dft_queue.cfg` with `cfg_label_status.py`. Already-labeled blocks are merged and the MTP is force-retrained; unlabeled blocks pause for VASP.
 
@@ -247,7 +248,9 @@ If zero selections are returned, the loop treats the pool as covered for the cur
 | Variable | Default | When to change |
 |----------|---------|----------------|
 | `AL_SELECT_THRESHOLD` | 3.0 | Lower (e.g. 2.0–2.5) to select more aggressively early; raise when pool is noisy |
-| `AL_SELECTION_LIMIT` | 50 | Raise for large DFT budgets; lower for small clusters |
+| `AL_SELECTION_LIMIT` | 50 | DFT budget for unlabeled MD. Leftover AIMD uses `AL_LABELED_SELECTION_LIMIT` instead |
+| `AL_LABELED_SELECTION_LIMIT` | 0 (unlimited) | Take the full MaxVol set when the pool is already labeled. Yesterday’s leftover-AIMD pass wanted 233 configs but the 50-cap forced ~5 more 9-hour select-add rounds |
+| `AL_RETRAIN_MAX_ITER` | 400 | BFGS steps after merge. Default 2000 is a multi-day refine, not an AL update |
 | `AL_MAX_ITERATIONS` | 20 | Safety cap on automated driver |
 | `AL_PREFER_HIGH_FORCE_ERROR` | 1 | Surface refine high-error subset as AL focus |
 | `AL_PAUSE_EXIT` | 10 | Driver exit when unlabeled selections still need DFT |

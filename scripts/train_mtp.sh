@@ -199,8 +199,15 @@ else
     # Capture train rc separately so a non-zero mlp exit (common on step
     # limit) does not skip postproc under set -e / pipefail mid-script.
     TRAIN_RC=0
-    run_mlp "${TRAIN_ARGS[@]}" \
-        2>&1 | tee "${TRAIN_LOG}" || TRAIN_RC=$?
+    # stdbuf on tee so BFGS iter lines show up during long steps (mlp is
+    # wrapped in run_mlp).
+    if command -v stdbuf >/dev/null 2>&1; then
+        run_mlp "${TRAIN_ARGS[@]}" \
+            2>&1 | stdbuf -oL -eL tee "${TRAIN_LOG}" || TRAIN_RC=$?
+    else
+        run_mlp "${TRAIN_ARGS[@]}" \
+            2>&1 | tee "${TRAIN_LOG}" || TRAIN_RC=$?
+    fi
     if [[ ${TRAIN_RC} -ne 0 ]]; then
         echo "WARNING: mlp train exited rc=${TRAIN_RC} (continuing postproc if pot exists)" >&2
     fi

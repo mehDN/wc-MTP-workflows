@@ -292,7 +292,7 @@ Short cycle:
 
 1. Optional: dump new MTP-MD / LAMMPS frames as `.cfg` into `datasets/candidates/`. Otherwise the leftover AIMD staging set is used.  
 2. `./run.sh --al`  
-3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`). No new VASP. BFGS after `--al` is the retrain half of the loop, not a skipped AL step.  
+3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`, `AL_RETRAIN_MAX_ITER=400`). Leftover AIMD is not capped at 50 — the full MaxVol set is merged in one pass. No new VASP.  
 4. Unlabeled selections only → run VASP, put `.cfg` in `datasets/labeled/`, re-run `./run.sh --al`.  
 5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a *verified* retrain, `iter_NNN/merged.ok` skips that iteration. A 0-byte stamp from a skipped BFGS is ignored.
 

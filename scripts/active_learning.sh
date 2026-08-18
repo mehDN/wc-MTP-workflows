@@ -63,6 +63,16 @@ run_mlp calc-grade "${TRAINED_MTP}" "${TRAIN_CFG}" "${CANDIDATE_CFG}" "${GRADED_
     2>&1 | tee "${ITER_DIR}/calc_grade.log"
 
 echo "[2/3] Selecting configurations to add (gamma / maxvol, np=${MPI_NPROCS})"
+# DFT-budget cap (AL_SELECTION_LIMIT) is for unlabeled MD. Leftover AIMD
+# already has Energy+forces — take the full MaxVol set so we do not pay
+# another multi-hour select-add for the next 50.
+SEL_LIMIT="${AL_SELECTION_LIMIT}"
+POOL_BASE="$(basename "${CANDIDATE_CFG}")"
+if [[ "${POOL_BASE}" == "_aimd_staging_pool.cfg" ]]; then
+    SEL_LIMIT="${AL_LABELED_SELECTION_LIMIT}"
+    echo "  Pool ${POOL_BASE} is leftover AIMD (already labeled); selection-limit=${SEL_LIMIT} (0=unlimited)"
+fi
+
 SELECT_ARGS=(
     select-add "${TRAINED_MTP}" "${TRAIN_CFG}" "${CANDIDATE_CFG}" "${DFT_QUEUE}"
     --als-filename="${ALS_ITER}"
@@ -72,8 +82,8 @@ SELECT_ARGS=(
     --swap-threshold="${AL_SWAP_THRESHOLD}"
 )
 
-if [[ "${AL_SELECTION_LIMIT}" != "0" ]]; then
-    SELECT_ARGS+=(--selection-limit="${AL_SELECTION_LIMIT}")
+if [[ "${SEL_LIMIT}" != "0" ]]; then
+    SELECT_ARGS+=(--selection-limit="${SEL_LIMIT}")
 fi
 
 run_mlp "${SELECT_ARGS[@]}" \

@@ -156,9 +156,11 @@ for ((iter=1; iter<=AL_MAX_ITERATIONS; iter++)); do
         exit "${AL_PAUSE_EXIT}"
     fi
 
-    echo "Retraining MTP on updated train.cfg (TRAIN_FORCE=1, n_cfg=$(cfg_n_configurations "${TRAIN_CFG}"))"
+    echo "Retraining MTP on updated train.cfg (TRAIN_FORCE=1, max_iter=${AL_RETRAIN_MAX_ITER}, n_cfg=$(cfg_n_configurations "${TRAIN_CFG}"))"
     export TRAIN_FORCE=1
-    TRAIN_FORCE=1 bash "${SCRIPT_DIR}/train_mtp.sh"
+    export EFFECTIVE_MAX_ITER="${AL_RETRAIN_MAX_ITER}"
+    TRAIN_FORCE=1 EFFECTIVE_MAX_ITER="${AL_RETRAIN_MAX_ITER}" \
+        bash "${SCRIPT_DIR}/train_mtp.sh"
     if ! train_set_current_for_pot "${TRAINED_MTP}" "${TRAIN_CFG}" "${MTP_AL_DIR}/logs"; then
         echo "ERROR: AL retrain did not consume the merged train set." >&2
         echo "  train.cfg: ${TRAIN_CFG} (n_cfg=$(cfg_n_configurations "${TRAIN_CFG}"))" >&2
