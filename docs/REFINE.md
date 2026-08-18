@@ -117,7 +117,8 @@ Reports global mindist vs `MTP_MIN_DIST`. If short pairs remain, lower `MTP_MIN_
 Refine prints practical next actions:
 
 1. Active learning on high-force-error / high-grade configs: `./run.sh --al`  
-2. High-error DFT subset (for prioritization): `active_learning/refine/high_force_error.cfg`  
+   Leftover AIMD staging frames already carry VASP EFS and are merged automatically.  
+2. High-error DFT subset (already labeled; for prioritization): `active_learning/refine/high_force_error.cfg`  
 3. Escalate level: `MTP_LEVEL=22 ./run.sh --skip-dataset`  
 
 Optional automatic level bump (off by default):

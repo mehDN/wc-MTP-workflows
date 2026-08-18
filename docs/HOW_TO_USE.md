@@ -51,6 +51,7 @@ Scripts use **Python 3** with the standard library only:
 
 - `merge_cfg.py`, `subsample_cfg.py`, `validate_mtp.py`, `prepare_mtp_template.py`
 - `filter_cfg.py`, `extract_high_error_cfg.py` (refine helpers)
+- `cfg_label_status.py` (detect Energy + forces on AL queues)
 
 ### Local DFT data (not in git)
 
@@ -63,8 +64,8 @@ wc-MTP-workflows/
   templates/
   datasets/
     sources.conf
-    candidates/          # MD frames for AL (you create)
-    labeled/             # DFT-labeled .cfg from AL (you create)
+    candidates/          # optional new MD frames for AL
+    labeled/             # only for unlabeled AL picks that need new VASP
   vac_W_2300/OUTCAR
   vac_W_2500_ML/OUTCAR
   vac_W_2500_small_ML/OUTCAR
@@ -108,6 +109,8 @@ Logs go to `logs/run_YYYYMMDD_HHMMSS.log`. Step state: `active_learning/workflow
 | BFGS finished, calc-errors died | Finishes errors + status only |
 | Pot trained + validated | Skips train; re-validates cheaply |
 | Mid-refine crash | Re-enters refine; skips completed continue rounds |
+| AL paused (`CURRENT_STATUS=paused`) | Reuses `iter_*/dft_queue.cfg`; merges if already labeled |
+| AL iter already merged (`merged.ok`) | Skips that iteration |
 
 Concurrent second run while a step is live is blocked (PID recorded in state). Use `--fresh` only if that process is gone.
 
@@ -120,7 +123,7 @@ Concurrent second run while a step is live is blocked (PID recorded in state). U
 | `--skip-validate` | Skip error thresholds |
 | `--refine` | Force refine sequence after train |
 | `--skip-refine` | Do not auto-refine when validation fails |
-| `--al` | After train, run active-learning selection |
+| `--al` | After train, run AL (auto-merge already-labeled leftover AIMD frames) |
 | `--candidates FILE` | Candidate pool for AL (implies `--al`) |
 | `--labeled FILE` | Merge new DFT labels into `train.cfg` before retrain |
 | `--per-traj` | Also train one MTP per AIMD folder |
@@ -281,16 +284,21 @@ Stages (details in [REFINE.md](REFINE.md)):
 
 ## 7. Active-learning loop
 
-Goal: select structures where the MTP extrapolates (high maxvol grade), label with DFT, merge, retrain—until the reconstructed C–C dimer is stable (~3–4 eV lowering vs unreconstructed vacancy).
+Goal: select structures where the MTP extrapolates (high maxvol grade), add their DFT labels, retrain—until the reconstructed C–C dimer is stable (~3–4 eV lowering vs unreconstructed vacancy).
+
+The initial `train.cfg` is a **stride subsample** of the AIMD OUTCARs (every 25th high-T frame by default). The unused frames are already DFT-labeled. If `datasets/candidates/` is empty, AL grades that leftover pool and **reuses those labels**.
 
 Short cycle:
 
-1. Dump candidate frames as MLIP `.cfg` into `datasets/candidates/` (or rely on leftover AIMD staging frames).  
+1. Optional: dump new MTP-MD / LAMMPS frames as `.cfg` into `datasets/candidates/`. Otherwise the leftover AIMD staging set is used.  
 2. `./run.sh --al`  
-3. If the queue already has Energy + forces (AIMD/OUTCAR leftovers), they are merged and the MTP is retrained automatically.  
-4. Only unlabeled selections need VASP → put `.cfg` in `datasets/labeled/` and re-run `./run.sh --al`.  
+3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and retrain. No new VASP.  
+4. Unlabeled selections only → run VASP, put `.cfg` in `datasets/labeled/`, re-run `./run.sh --al`.  
+5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a successful retrain, `iter_NNN/merged.ok` skips that iteration.
 
-If refine produced `active_learning/refine/high_force_error.cfg`, that subset is a useful prioritization list for labeling (already DFT-labeled configs with high MTP force error).
+A pause for unlabeled DFT is `CURRENT_STATUS=paused` (exit 10), not a failed workflow.
+
+If refine produced `active_learning/refine/high_force_error.cfg`, that subset is already DFT-labeled and is a useful focus map for high-force local environments.
 
 Full details: [ACTIVE_LEARNING.md](ACTIVE_LEARNING.md).
 
@@ -330,8 +338,9 @@ Default `MAX_PARALLEL=1` so concurrent jobs do not multiply MPI ranks. Individua
 | `scripts/train_mtp.sh` | Fit / continue MTP (MPI) |
 | `scripts/refine_mtp.sh` | Continue BFGS + force retrain + high-error stages |
 | `scripts/validate_mtp.py` | Threshold check on error logs |
+| `scripts/cfg_label_status.py` | Report / extract already-labeled vs unlabeled `.cfg` blocks |
 | `scripts/active_learning.sh` | One AL iteration (grade + select-add, MPI) |
-| `scripts/run_active_learning.sh` | Multi-iteration AL driver |
+| `scripts/run_active_learning.sh` | Multi-iteration AL driver (auto-merge labeled queues; pause if unlabeled) |
 | `scripts/select_from_md.sh` | Helper to pull frames from MD |
 | `scripts/run_all_trajectories.sh` | Batch per-trajectory training |
 | `scripts/train_trajectory.sh` | Single-trajectory training |
@@ -374,6 +383,8 @@ Full list: [CONFIGURATION.md](CONFIGURATION.md). Source of truth: `scripts/mtp_c
 | BFGS step limit / force RMS slightly high | `./run.sh --only refine` |
 | Validation fails after refine | Add bulk + defect diversity; run AL; try `MTP_LEVEL=22` |
 | No AL candidates | Put `.cfg` files in `datasets/candidates/` or ensure staging AIMD cfgs exist |
+| AL paused for DFT on leftover AIMD | Queue should already be labeled; rerun `./run.sh --al` with the updated driver |
+| AL re-grades a huge pool | Existing `iter_*/dft_queue.cfg` should be reused; do not delete it |
 | Template regenerate loop | Ensure `MLIP_ROOT/untrained_mtps/` has the matching level file |
 | “Another workflow appears to be running” | Wait for PID, or kill stale process, or `./run.sh --fresh` if state is stale |
 

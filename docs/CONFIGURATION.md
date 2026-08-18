@@ -152,6 +152,10 @@ External sources: `SOURCES_CONF` → default `datasets/sources.conf`.
 
 ## Active learning
 
+If the candidate pool is leftover AIMD staging frames, selected configs usually already have VASP `Energy` + forces. The driver merges those into `train.cfg` and retrains. New DFT is requested only when a selection has no Energy + forces.
+
+A cfg is **labeled** when it has a numeric `Energy` and `AtomData` force columns (`fx`/`fy`/`fz`). Detection: `scripts/cfg_label_status.py` (also `al_cfg_label_status` in `mtp_config.sh`).
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AL_INIT_THRESHOLD` | `1e-5` | Init threshold for grade / select-add |
@@ -161,11 +165,24 @@ External sources: `SOURCES_CONF` → default `datasets/sources.conf`.
 | `AL_SELECTION_LIMIT` | `50` | Max structures per select-add (`0` = unlimited) |
 | `AL_MAX_ITERATIONS` | `20` | Cap for `run_active_learning.sh` |
 | `AL_PREFER_HIGH_FORCE_ERROR` | `1` | Announce refine high-error subset as AL focus material |
+| `AL_PAUSE_EXIT` | `10` | Exit code when unlabeled selections still need VASP (`run.sh` records `CURRENT_STATUS=paused`) |
 | `AL_CANDIDATE_CFG` | *(unset)* | Explicit candidate pool path |
 | `AL_LABELED_CFG` | *(unset)* | Explicit labeled cfg path |
 | `AL_CANDIDATES_DIR` | `datasets/candidates` | Auto-discover `*.cfg` here |
-| `AL_LABELED_DIR` | `datasets/labeled` | Auto-discover labeled `*.cfg` |
+| `AL_LABELED_DIR` | `datasets/labeled` | Auto-discover newly labeled `*.cfg` after a pause |
 | `AL_MERGED_CANDIDATES` | `.../candidates/_merged_pool.cfg` | Merge of multiple pools |
+
+Resume artifacts under `active_learning/iter_NNN/`:
+
+| File | Role |
+|------|------|
+| `dft_queue.cfg` | Selected configs; reused on resume (grade/select skipped) |
+| `unlabeled_queue.cfg` | Split remainder that still needs DFT (mixed queues) |
+| `merged.ok` | Stamp written after a successful merge + retrain |
+
+If no `datasets/candidates/*.cfg` exists, the fallback pool is the full AIMD staging set (`datasets/initial/staging/aimd_*.cfg`, not the stride-subsampled train set). That pool is cached as `datasets/candidates/_aimd_staging_pool.cfg` and rebuilt only when staging files are newer.
+
+`workflow_infer_resume_point` treats `CURRENT_STATUS=paused` like `running`/`failed` so `./run.sh --al` continues the AL step.
 
 ---
 
@@ -213,6 +230,6 @@ External sources: `SOURCES_CONF` → default `datasets/sources.conf`.
 1. Build a diverse initial set (bulk + defect + high-T AIMD).  
 2. Train level **20** (MPI), check force RMS.  
 3. If BFGS hits step limit or force RMS fails → let **auto-refine** run (or `./run.sh --only refine`).  
-4. Run AL around the unreconstructed vacancy / dimer pathway.  
+4. Run AL. Leftover AIMD frames already in staging are labeled and will be merged automatically; dump new MTP-MD frames to `datasets/candidates/` when you need extra unlabeled exploration.  
 5. If defect forces stay > ~0.1 eV/Å after several AL rounds → `MTP_LEVEL=22` and/or slightly larger cutoff / force weight.  
 6. Only then explore `FORCE_WEIGHT`, `MTP_MAX_DIST`, and radial basis size.

@@ -33,7 +33,9 @@ This workflow uses the **MLIP MaxVol / extrapolation-grade** strategy (native to
 
 - A candidate pool of structures is scored with `mlp calc-grade`.
 - Configurations whose **extrapolation grade** exceeds `AL_SELECT_THRESHOLD` (default **3.0**) are selected by `mlp select-add` (optionally capped by `AL_SELECTION_LIMIT`).
-- Selected structures are written to `dft_queue.cfg`, labeled with DFT, merged into `train.cfg`, and the MTP is retrained.
+- Selected structures are written to `dft_queue.cfg`.
+- If those configs **already have** VASP `Energy` + forces (typical leftover AIMD/OUTCAR frames), they are merged into `train.cfg` and the MTP is retrained — no new DFT.
+- New VASP is requested only when a selection has no Energy + forces (MTP-MD / LAMMPS dumps).
 
 The extrapolation grade \(\gamma\) is derived from the **D-optimality criterion**. An “active set” of the most linearly independent configurations (in the MTP descriptor basis) is maintained. For a new configuration the grade measures how much it would expand the volume of that active set:
 
@@ -77,7 +79,7 @@ If force RMS is still high after train, prefer refine first:
 
 ## Candidate pools
 
-Candidates are **unlabeled or cheaply generated** structures (MTP MD, LAMMPS, exploratory relaxations, rattled defects, pathway samples).
+Candidates can be unlabeled (MTP MD, LAMMPS, exploratory relaxations) **or already DFT-labeled** leftover AIMD frames. The initial train set only keeps a stride-subsampled subset (`HIGH_T_STRIDE` / `SUBSAMPLE_STRIDE`). The AL fallback pool is the **full** converted AIMD trajectories; MaxVol then picks the unused frames that most expand coverage, and those labels are reused.
 
 ### Where to put them
 
@@ -90,7 +92,7 @@ datasets/candidates/*.cfg
 1. Explicit path: `--candidates FILE` or `active_learning.sh` argument  
 2. Environment: `AL_CANDIDATE_CFG`  
 3. All non-empty `datasets/candidates/*.cfg` (merged if more than one)  
-4. Fallback: full AIMD staging trajectories under `datasets/initial/staging/aimd_*.cfg`  
+4. Fallback: full AIMD staging trajectories under `datasets/initial/staging/aimd_*.cfg` (already DFT-labeled leftover frames; cached as `datasets/candidates/_aimd_staging_pool.cfg`)  
 
 Internal merge files (`_merged_pool.cfg`, `_aimd_staging_pool.cfg`) are skipped as inputs.
 
@@ -141,8 +143,10 @@ Grade and select-add run under **MPI** (`run_mlp`, default `MPI_NPROCS=19`).
 | 1 | `mlp calc-grade` | `graded.cfg`, `state.als`, `calc_grade.log` |
 | 2 | `mlp select-add` | `dft_queue.cfg`, `selected.cfg`, `select_add.log` |
 
-Configs with grade above `AL_SELECT_THRESHOLD` (default **3.0**) are preferred for DFT.  
+Configs with grade above `AL_SELECT_THRESHOLD` (default **3.0**) are preferred.  
 `AL_SELECTION_LIMIT` (default **50**) caps how many are queued (`0` = unlimited).
+
+`run_active_learning.sh` then inspects `dft_queue.cfg` with `cfg_label_status.py`. Already-labeled blocks are merged; unlabeled blocks pause for VASP.
 
 ---
 
@@ -244,6 +248,7 @@ If zero selections are returned, the loop treats the pool as covered for the cur
 | `AL_SELECTION_LIMIT` | 50 | Raise for large DFT budgets; lower for small clusters |
 | `AL_MAX_ITERATIONS` | 20 | Safety cap on automated driver |
 | `AL_PREFER_HIGH_FORCE_ERROR` | 1 | Surface refine high-error subset as AL focus |
+| `AL_PAUSE_EXIT` | 10 | Driver exit when unlabeled selections still need DFT |
 
 ```bash
 AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
@@ -260,7 +265,9 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 | `active_learning/logs/calc_errors_train.log` | Training-set errors |
 | `active_learning/logs/train_status.env` | Last train metrics (`FORCE_RMS`, `STEP_LIMIT`, …) |
 | `active_learning/refine/high_force_error.cfg` | High force-error DFT subset (from refine) |
-| `active_learning/iter_*/dft_queue.cfg` | Structures to label |
+| `active_learning/iter_*/dft_queue.cfg` | Selected configs (may already have Energy + forces) |
+| `active_learning/iter_*/unlabeled_queue.cfg` | Split remainder that still needs DFT |
+| `active_learning/iter_*/merged.ok` | Stamp after successful merge + retrain |
 | `active_learning/iter_*/calc_grade.log` | Grade statistics |
 | `datasets/initial/train.cfg` | Growing training set |
 | `active_learning/workflow_state.env` | Orchestrator resume state |
@@ -282,9 +289,12 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 
 | Issue | Action |
 |-------|--------|
-| “No candidate .cfg pool found” | Add files under `datasets/candidates/` or pass `--candidates` |
+| “No candidate .cfg pool found” | Add files under `datasets/candidates/`, pass `--candidates`, or ensure AIMD staging `.cfg` files exist |
 | Empty `dft_queue.cfg` | Pool already covered; generate more diverse MD/pathway frames or lower `AL_SELECT_THRESHOLD` |
-| Too many DFT jobs | Lower `AL_SELECTION_LIMIT` |
+| AL asks for VASP on AIMD leftover frames | Should not happen: check that `dft_queue.cfg` has `Energy` + `fx` columns; rerun `./run.sh --al` (reuses the queue) |
+| AL status `paused` | Unlabeled selections need DFT; save `.cfg` to `datasets/labeled/` and rerun `./run.sh --al` |
+| Re-grade of a huge pool on every rerun | Should not happen: existing `iter_NNN/dft_queue.cfg` is reused until `merged.ok` |
+| Too many DFT jobs | Lower `AL_SELECTION_LIMIT`; leftover AIMD frames do not need new VASP |
 | Forces good on train, bad on vacancy MD | Candidate pool not covering the reconstruction path |
 | Template / level mismatch | Set `MTP_LEVEL` consistently; regenerate template via `ensure_mtp_template` |
 | MPI launch failures mid-AL | Check `MLP_STAGE`, `ensure_mlp`, renew Kerberos if needed |

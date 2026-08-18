@@ -9,7 +9,7 @@ This repository separates **committed workflow code** from **local DFT / trainin
 | Path | Role |
 |------|------|
 | `run.sh` | Main orchestrator (resume + refine) |
-| `scripts/*` | Pipeline steps (train, refine, filter, AL, …) |
+| `scripts/*` | Pipeline steps (train, refine, filter, AL, `cfg_label_status.py`, …) |
 | `templates/WC_L20.mtp`, `templates/WC_L22.mtp` | Small untrained W–C MTP templates |
 | `datasets/sources.conf` | External source list (paths you edit) |
 | `docs/*.md`, `README.md` | Documentation |
@@ -37,8 +37,8 @@ This repository separates **committed workflow code** from **local DFT / trainin
 | `datasets/initial/manifest.txt` | Build inventory |
 | `datasets/initial/composition.txt` | Category counts |
 | `datasets/initial/logs/` | convert / merge / subsample logs |
-| `datasets/candidates/*` | AL candidate pools (except `.gitkeep`) |
-| `datasets/labeled/*` | DFT-labeled AL configs (except `.gitkeep`) |
+| `datasets/candidates/*` | AL candidate pools (except `.gitkeep`); `_aimd_staging_pool.cfg` is the leftover-AIMD fallback |
+| `datasets/labeled/*` | Newly DFT-labeled AL configs after a pause (except `.gitkeep`) |
 | `datasets/validation/*` | Holdout sets (except `.gitkeep`) |
 | `datasets/static/` | Optional static DFT cfg trees |
 
@@ -97,6 +97,9 @@ wc-MTP-workflows/                 # git clone
 │   │   ├── train_filtered.cfg
 │   │   └── high_force_error.cfg
 │   └── iter_001/
+│       ├── dft_queue.cfg         # selected (may already have EFS)
+│       ├── unlabeled_queue.cfg   # only if mixed labeled/unlabeled
+│       └── merged.ok             # after merge + retrain
 ├── logs/                         # orchestrator run logs
 ├── vac_W_2300/OUTCAR             # your AIMD (local)
 ├── vac_W_2500_ML/OUTCAR
@@ -141,7 +144,9 @@ export MLIP_ROOT=/path/to/mlip-2
 ./run.sh --skip-dataset
 
 # 4. Optional AL
-#    put pools in datasets/candidates/
+#    leftover AIMD staging frames are used if candidates/ is empty;
+#    they already have DFT labels and are merged + retrained.
+#    put new MTP-MD dumps in datasets/candidates/ if you need unlabeled exploration
 ./run.sh --al
 
 # 5. After crash: just re-run (auto-resume)

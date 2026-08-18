@@ -15,8 +15,10 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 - **Auto-refine** when validation fails: more BFGS + rescale, force-weighted retrain, high-error subset, mindist check
 - Optional **active learning** based on the MLIP **MaxVol / extrapolation-grade** strategy (D-optimality)
   - Selects configurations that most expand the training coverage in descriptor space
-  - Selected frames are DFT-labeled, merged, and the MTP is retrained
-  - See [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) for a full explanation of active learning, alternative algorithms, and why MaxVol is used here
+  - If a selection already has VASP `Energy` + forces (leftover AIMD/OUTCAR frames), it is **merged and retrained** — no new DFT
+  - New VASP is requested only for unlabeled MD/exploratory frames; that pause is recorded as `paused`, not a crash
+  - Resume reuses `iter_NNN/dft_queue.cfg` so grade/select is not rerun
+  - See [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) for the loop, MaxVol rationale, and when DFT is actually needed
 - Optional **per-trajectory** MTP fits for diagnostics
 - Shared hyperparameters in `scripts/mtp_config.sh` (all overridable via env)
 - External DFT sources via `datasets/sources.conf` with composition categories
@@ -43,14 +45,15 @@ wc-MTP-workflows/
 │   ├── validate_mtp.py
 │   ├── active_learning.sh
 │   ├── run_active_learning.sh
+│   ├── cfg_label_status.py     # Detect Energy+forces on AL queues
 │   └── ...
 ├── templates/
 │   ├── WC_L20.mtp              # Level-20 W–C template
 │   └── WC_L22.mtp              # Level-22 (if defect forces stay high)
 ├── datasets/
 │   ├── sources.conf            # Extra DFT sources (committed)
-│   ├── candidates/             # AL candidate pools (local)
-│   └── labeled/                # DFT-labeled AL configs (local)
+│   ├── candidates/             # optional new MD pools (local)
+│   └── labeled/                # new DFT labels after an unlabeled AL pause
 └── active_learning/            # Trained MTPs, refine/, state (local)
 ```
 
@@ -60,8 +63,8 @@ wc-MTP-workflows/
 |------------|------|
 | [MLIP-2](https://gitlab.com/ashapeev/mlip-2) | `mlp` binary (set `MLIP_ROOT` / `MLP`) |
 | MPI (`mpirun`) | Parallel train / AL (optional serial with `MPI_NPROCS=1`) |
-| Python 3 | Stdlib-only helpers (`merge_cfg.py`, `filter_cfg.py`, `validate_mtp.py`, …) |
-| VASP (or equivalent DFT) | Label AL selections; produce AIMD `OUTCAR`s |
+| Python 3 | Stdlib-only helpers (`merge_cfg.py`, `filter_cfg.py`, `validate_mtp.py`, `cfg_label_status.py`, …) |
+| VASP (or equivalent DFT) | Produce AIMD `OUTCAR`s; label **unlabeled** AL selections only |
 
 ```bash
 export MLIP_ROOT="${HOME}/software/mlip-2"
@@ -86,8 +89,8 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 # Or list extra paths in datasets/sources.conf
 
 ./run.sh                 # dataset → train → validate (+ auto-refine if needed)
-./run.sh --al            # same + active-learning selection
-./run.sh                 # re-run after crash: auto-resumes from failed step
+./run.sh --al            # same + AL (auto-merges already-labeled leftover AIMD frames)
+./run.sh                 # re-run after crash or AL pause: auto-resumes
 ```
 
 ## Pipeline overview
@@ -101,7 +104,8 @@ chmod +x run.sh scripts/*.sh scripts/*.py
                      force retrain → high-error → mindist)    │
                                                               ▼
                                                     Active learning
-                                                    (select → DFT → merge → retrain)
+                                                    (select → merge if already labeled
+                                                     else DFT → merge → retrain)
 ```
 
 | Step | What runs | Main outputs |
@@ -111,7 +115,7 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 | 3. Train | Linear MTP fit (continues fitted pot if found) | `active_learning/WC_L20_trained.mtp` |
 | 4. Validate | Parse `calc-errors` vs thresholds | Pass/fail gate |
 | 4b. Refine | More BFGS, force retrain, high-error subset | `active_learning/refine/*.mtp` |
-| 5. AL (opt.) | Grade + select-add | `active_learning/iter_*/dft_queue.cfg` |
+| 5. AL (opt.) | Grade + select-add; merge already-labeled queues and retrain | `iter_*/dft_queue.cfg`, updated `train.cfg` |
 | 6. Per-traj (opt.) | One MTP per AIMD folder | Per-folder potentials |
 
 ### Resume behavior
@@ -121,6 +125,8 @@ By default (`AUTO_RESUME=1`), re-running `./run.sh` after a crash:
 - Skips steps already complete (dataset present, pot trained + errors logged, …)
 - Continues train post-processing if BFGS finished but `calc-errors` died
 - Restores planned `--al` / `--per-traj` / refine intents from `active_learning/workflow_state.env`
+- If AL paused for unlabeled DFT (`CURRENT_STATUS=paused`), re-running `--al` continues from the existing queue
+- Existing `iter_NNN/dft_queue.cfg` is reused (no re-grade); `iter_NNN/merged.ok` skips a finished iteration
 
 Force a full re-plan: `./run.sh --fresh`. Force random-init train (ignore fitted pots): `TRAIN_FRESH=1 ./run.sh --skip-dataset`.
 
@@ -136,9 +142,9 @@ Force a full re-plan: `./run.sh --fresh`. Force random-init train (ignore fitted
 ./run.sh --only refine            # continue BFGS / force retrain from existing pot
 ./run.sh --refine                 # force refine after train
 ./run.sh --skip-refine            # never auto-refine on validate fail
-./run.sh --al                     # train + AL
+./run.sh --al                     # AL: merge leftover AIMD labels or pause for VASP
 ./run.sh --al --candidates path/to/pool.cfg
-./run.sh --labeled datasets/labeled/new.cfg   # merge labels before retrain
+./run.sh --labeled datasets/labeled/new.cfg   # merge new DFT labels before retrain
 ./run.sh --per-traj               # also fit per-AIMD-trajectory MTPs
 
 # Hyperparameter / parallel overrides
@@ -185,7 +191,7 @@ From `scripts/mtp_config.sh` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 | [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) | Full walkthrough: setup, train, resume, refine, AL |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All env vars and defaults |
 | [docs/REFINE.md](docs/REFINE.md) | Post-train refine sequence (BFGS continue, force retrain) |
-| [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | What is active learning, query strategies, why MaxVol/extrapolation grade, and the select → label → merge → retrain loop |
+| [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | MaxVol AL: already-labeled AIMD leftover frames vs unlabeled MD, pause/resume, merge + retrain |
 | [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) | Local data paths and what Git ignores |
 
 ## What is not committed
