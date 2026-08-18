@@ -8,6 +8,7 @@
 #   TRAIN_START_MTP   explicit starting potential
 #   TRAIN_RESUME=auto search active_learning for fitted MTPs and continue (default)
 #   TRAIN_FRESH=1     ignore existing pots; start from untrained template
+#   TRAIN_FORCE=1     always re-run BFGS (AL merge / --labeled set this)
 #   MAX_ITER, ENERGY_WEIGHT, FORCE_WEIGHT, STRESS_WEIGHT, ...
 #
 # Writes:
@@ -52,23 +53,33 @@ EFFECTIVE_FORCE_WEIGHT="${EFFECTIVE_FORCE_WEIGHT:-${FORCE_WEIGHT}}"
 EFFECTIVE_STRESS_WEIGHT="${EFFECTIVE_STRESS_WEIGHT:-${STRESS_WEIGHT}}"
 TRAIN_TAG="${TRAIN_TAG:-train}"
 TRAIN_LOG="${LOGDIR}/${TRAIN_TAG}.log"
+TRAIN_N_CFG="$(cfg_n_configurations "${TRAIN_SET}")"
 
 # ---------------------------------------------------------------------------
 # Resume: skip finished sub-steps after a mid-train crash.
 #   TRAIN_FORCE=1          always re-run BFGS
 #   TRAIN_RESUME_POSTPROC=1 force postproc-only (set by run.sh auto-resume)
+# Never skip BFGS when train.cfg is newer or larger than the last fit
+# (AL merge / --labeled). That used to look "already complete" and stamp
+# merged.ok without refitting the new configs.
 # ---------------------------------------------------------------------------
 SKIP_BFGS=0
-if [[ "${TRAIN_FORCE:-0}" != "1" ]]; then
-    if train_fully_complete "${OUTPUT_MTP}" "${TRAIN_TAG}" "${LOGDIR}"; then
-        echo "=== WC MTP training (${TRAIN_TAG}) ==="
-        echo "Already complete: ${OUTPUT_MTP}"
-        echo "  errors + train_status.env present — nothing to do."
-        echo "  Re-run BFGS with: TRAIN_FORCE=1 ./scripts/train_mtp.sh ..."
-        exit 0
+if [[ "${TRAIN_FORCE:-0}" == "1" ]]; then
+    echo "TRAIN_FORCE=1: BFGS will run even if a fitted pot already exists"
+elif train_fully_complete "${OUTPUT_MTP}" "${TRAIN_TAG}" "${LOGDIR}" "${TRAIN_SET}"; then
+    echo "=== WC MTP training (${TRAIN_TAG}) ==="
+    echo "Already complete: ${OUTPUT_MTP}"
+    echo "  errors + train_status.env present and train set unchanged — nothing to do."
+    echo "  Re-run BFGS with: TRAIN_FORCE=1 ./scripts/train_mtp.sh ..."
+    exit 0
+else
+    if ! train_set_current_for_pot "${OUTPUT_MTP}" "${TRAIN_SET}" "${LOGDIR}"; then
+        echo "Train set changed since last fit — will re-run BFGS"
+        echo "  train set: ${TRAIN_SET} (n_cfg=${TRAIN_N_CFG})"
+        echo "  pot:       ${OUTPUT_MTP}"
     fi
     if [[ "${TRAIN_RESUME_POSTPROC:-0}" == "1" ]] || \
-       train_postproc_pending "${OUTPUT_MTP}" "${TRAIN_TAG}" "${LOGDIR}"; then
+       train_postproc_pending "${OUTPUT_MTP}" "${TRAIN_TAG}" "${LOGDIR}" "${TRAIN_SET}"; then
         SKIP_BFGS=1
     fi
 fi
@@ -220,6 +231,7 @@ STATUS_ENV="${LOGDIR}/train_status.env"
     echo "TRAIN_TAG=$(printf '%q' "${TRAIN_TAG}")"
     echo "OUTPUT_MTP=$(printf '%q' "${OUTPUT_MTP}")"
     echo "TRAIN_SET=$(printf '%q' "${TRAIN_SET}")"
+    echo "TRAIN_N_CFG=${TRAIN_N_CFG}"
     echo "START_MTP=$(printf '%q' "${TRAIN_START_MTP_RESOLVED}")"
     echo "START_SOURCE=$(printf '%q' "${START_SOURCE}")"
     echo "CONTINUING=${CONTINUING}"
@@ -315,6 +327,7 @@ PY
     echo "TRAIN_TAG=$(printf '%q' "${TRAIN_TAG}")"
     echo "OUTPUT_MTP=$(printf '%q' "${OUTPUT_MTP}")"
     echo "TRAIN_SET=$(printf '%q' "${TRAIN_SET}")"
+    echo "TRAIN_N_CFG=${TRAIN_N_CFG}"
     echo "START_MTP=$(printf '%q' "${TRAIN_START_MTP_RESOLVED}")"
     echo "START_SOURCE=$(printf '%q' "${START_SOURCE}")"
     echo "CONTINUING=${CONTINUING}"

@@ -13,10 +13,12 @@
 #
 # If selected configs already have Energy + forces (typical when the pool is
 # unused AIMD/OUTCAR frames), they are merged into train.cfg and the MTP is
-# retrained. New VASP is requested only for unlabeled selections.
+# retrained with TRAIN_FORCE=1 (resume-skip of an existing pot does not apply).
+# New VASP is requested only for unlabeled selections.
 #
 # Resume: existing iter_NNN/dft_queue.cfg is reused (no re-grade). A
-# iter_NNN/merged.ok stamp means that iteration already merged + retrained.
+# iter_NNN/merged.ok stamp means that iteration already merged + actually
+# retrained (not written if BFGS was skipped).
 #
 # Labeled configs for unlabeled queues (datasets/labeled/*.cfg, newest first):
 #   Place VASP-labeled cfg files there to continue after a pause.
@@ -84,8 +86,16 @@ for ((iter=1; iter<=AL_MAX_ITERATIONS; iter++)); do
     echo "=============================="
 
     if [[ -f "${MERGED_OK}" ]]; then
-        echo "Already merged and retrained (${MERGED_OK}); skipping."
-        continue
+        # Skip only when the pot already matches the merged train set.
+        # A 0-byte stamp from the old "skip-complete then write merged.ok" bug
+        # is ignored unless a later TRAIN_FORCE fit caught up.
+        if train_set_current_for_pot \
+            "${TRAINED_MTP}" "${TRAIN_CFG}" "${MTP_AL_DIR}/logs"; then
+            echo "Already merged and retrained (${MERGED_OK}); skipping."
+            continue
+        fi
+        echo "Stale merged.ok (pot does not match current train.cfg); will retrain."
+        rm -f "${MERGED_OK}"
     fi
 
     if [[ -s "${DFT_QUEUE}" ]]; then
@@ -146,8 +156,24 @@ for ((iter=1; iter<=AL_MAX_ITERATIONS; iter++)); do
         exit "${AL_PAUSE_EXIT}"
     fi
 
-    bash "${SCRIPT_DIR}/train_mtp.sh"
-    : > "${MERGED_OK}"
+    echo "Retraining MTP on updated train.cfg (TRAIN_FORCE=1, n_cfg=$(cfg_n_configurations "${TRAIN_CFG}"))"
+    export TRAIN_FORCE=1
+    TRAIN_FORCE=1 bash "${SCRIPT_DIR}/train_mtp.sh"
+    if ! train_set_current_for_pot "${TRAINED_MTP}" "${TRAIN_CFG}" "${MTP_AL_DIR}/logs"; then
+        echo "ERROR: AL retrain did not consume the merged train set." >&2
+        echo "  train.cfg: ${TRAIN_CFG} (n_cfg=$(cfg_n_configurations "${TRAIN_CFG}"))" >&2
+        echo "  pot:       ${TRAINED_MTP}" >&2
+        echo "  Refusing to stamp merged.ok — rerun ./run.sh --al to retry BFGS." >&2
+        exit 1
+    fi
+    {
+        echo "LABEL=${LABEL}"
+        echo "TRAIN_N_CFG=$(cfg_n_configurations "${TRAIN_CFG}")"
+        echo "POT=${TRAINED_MTP}"
+        echo "TRAIN_SET=${TRAIN_CFG}"
+        echo "UPDATED=$(date -Iseconds 2>/dev/null || date)"
+    } > "${MERGED_OK}"
+    echo "Wrote ${MERGED_OK} (retrain verified against current train.cfg)"
 
     if [[ "${N_UNLABELED}" -gt 0 && -s "${UNLABELED_QUEUE}" ]]; then
         echo

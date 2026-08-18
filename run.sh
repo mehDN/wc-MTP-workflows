@@ -7,7 +7,8 @@
 #   3. Train MTP (linear fit on fixed basis)
 #   4. Validate against convergence thresholds
 #   5. (optional) Active-learning loop: leftover AIMD frames are already
-#      DFT-labeled and are merged + retrained; new VASP only if unlabeled
+#      DFT-labeled and are merged + retrained (TRAIN_FORCE=1; existing pot
+#      is not treated as done). New VASP only if unlabeled.
 #   6. (optional) Per-trajectory MTP fits
 #
 # Resume (default):
@@ -84,7 +85,7 @@ Resume (default AUTO_RESUME=1):
 Options:
   --al                 After train, run active-learning loop (auto-finds candidate .cfg)
   --candidates FILE    Override candidate pool for active learning
-  --labeled FILE       Merge FILE into train.cfg before retrain
+  --labeled FILE       Merge FILE into train.cfg and force-retrain (TRAIN_FORCE=1)
   --refine             Force refine sequence after train (also AUTO_REFINE=1 on validate fail)
   --skip-refine        Do not auto-refine when validation fails
   --per-traj           Also train per-AIMD-trajectory MTPs (vac_W_* folders)
@@ -118,6 +119,7 @@ Active-learning loop (after initial fit on bulk + relaxed defect configs):
   1. Grade the candidate pool (MD frames in datasets/candidates/, or leftover
      already-labeled AIMD frames from datasets/initial/staging/)
   2. If selected configs already have Energy + forces: merge + retrain
+     (BFGS is forced; resume-skip of an existing pot does not apply)
   3. Only unlabeled selections need new VASP (PBE, ENCUT 450-500 eV) —
      save those to datasets/labeled/ and rerun ./run.sh --al
   4. Repeat until reconstructed dimer is stable ground state (~3-4 eV lowering)
@@ -488,6 +490,17 @@ if [[ -n "${LABELED_CFG}" ]]; then
         | tee -a "${RUN_LOG}"
     cp "${MERGED}" "${TRAIN_CFG}"
     log "Updated training set: ${TRAIN_CFG}"
+    export TRAIN_FORCE=1
+    if [[ "${DO_TRAIN}" != "1" && "${DO_AL}" != "1" ]]; then
+        if [[ "${USER_SET_TRAIN}" == "1" ]]; then
+            log "WARNING: --labeled updated train.cfg but train is disabled; pot is now stale."
+        else
+            DO_TRAIN=1
+            log "  Forcing train (train.cfg changed by --labeled merge)."
+        fi
+    elif [[ "${DO_TRAIN}" == "1" ]]; then
+        log "  TRAIN_FORCE=1 (will not skip BFGS after labeled merge)"
+    fi
     workflow_finish_step merge_labels
 fi
 
@@ -574,8 +587,15 @@ if [[ "${DO_AL}" == "1" ]]; then
     step_header 5 "Active learning (grade threshold ${AL_SELECT_THRESHOLD})"
     workflow_begin_step al
     set +e
-    bash "${SCRIPTS}/run_active_learning.sh" ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
-        2>&1 | tee -a "${RUN_LOG}"
+    # Line-buffer AL progress so "Retraining..." is not stuck behind tee.
+    if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -oL -eL bash "${SCRIPTS}/run_active_learning.sh" \
+            ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
+            2>&1 | tee -a "${RUN_LOG}"
+    else
+        bash "${SCRIPTS}/run_active_learning.sh" ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
+            2>&1 | tee -a "${RUN_LOG}"
+    fi
     al_rc=${PIPESTATUS[0]}
     set -e
     if [[ "${al_rc}" -eq "${AL_PAUSE_EXIT}" ]]; then

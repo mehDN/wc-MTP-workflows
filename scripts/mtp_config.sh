@@ -157,6 +157,9 @@ INIT_PARAMS="${INIT_PARAMS:-random}"
 # Continue from existing fitted MTPs when found (trained / curr / refine stages).
 # Set TRAIN_FRESH=1 to ignore them and start from the untrained template.
 TRAIN_FRESH="${TRAIN_FRESH:-0}"
+# TRAIN_FORCE=1 always re-run BFGS even if pot + errors look complete.
+# The AL driver and --labeled merge set this so a grown train.cfg is refit.
+TRAIN_FORCE="${TRAIN_FORCE:-0}"
 # TRAIN_RESUME: auto | 1 | 0
 #   auto (default) = search for fitted pots and continue from the newest
 #   1              = prefer curr checkpoint
@@ -566,6 +569,46 @@ cfg_has_configurations() {
     grep -q '^BEGIN_CFG' "${cfg}" 2>/dev/null
 }
 
+# Number of MLIP configurations in a .cfg (BEGIN_CFG count). Prints 0 if missing.
+cfg_n_configurations() {
+    local cfg="${1:-}"
+    if [[ -z "${cfg}" || ! -f "${cfg}" ]]; then
+        echo 0
+        return 1
+    fi
+    grep -c '^BEGIN_CFG' "${cfg}" 2>/dev/null || true
+}
+
+# Return 0 if pot + last train_status still match this training set.
+# Fail when train.cfg was rewritten or grew after the last fit (AL merge,
+# --labeled, dataset rebuild). Resume skip must not hide a new train set.
+train_set_current_for_pot() {
+    local pot="${1:-${TRAINED_MTP}}"
+    local train_set="${2:-${TRAIN_CFG}}"
+    local logdir="${3:-${MTP_AL_DIR}/logs}"
+    local status_env="${logdir}/train_status.env"
+    local pot_m set_m status_n now_n
+
+    [[ -f "${pot}" && -f "${train_set}" ]] || return 1
+
+    pot_m=$(stat -c %Y "${pot}" 2>/dev/null || stat -f %m "${pot}" 2>/dev/null || echo 0)
+    set_m=$(stat -c %Y "${train_set}" 2>/dev/null || stat -f %m "${train_set}" 2>/dev/null || echo 0)
+    # train.cfg rewritten after pot (typical AL merge). Allow 30s NFS skew.
+    if (( set_m > pot_m + 30 )); then
+        return 1
+    fi
+
+    now_n="$(cfg_n_configurations "${train_set}")"
+    if [[ -f "${status_env}" ]]; then
+        status_n="$(grep -E '^TRAIN_N_CFG=' "${status_env}" 2>/dev/null | head -1 \
+            | cut -d= -f2- | tr -d "\"'\\\\" || true)"
+        if [[ -n "${status_n}" && "${status_n}" != "${now_n}" ]]; then
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # True if a calc-errors log contains a real Errors report (not just mpirun failures).
 errors_report_ok() {
     local log="${1:-}"
@@ -594,11 +637,12 @@ train_errors_log_for_tag() {
 
 # Training fully finished for pot + tag: fitted pot + matching calc-errors log
 # written at/after the pot (so a newer refine pot does not look "done" from an
-# old errors file).
+# old errors file), and the training set has not grown/been rewritten since.
 train_fully_complete() {
     local pot="${1:-${TRAINED_MTP}}"
     local tag="${2:-train}"
     local logdir="${3:-${MTP_AL_DIR}/logs}"
+    local train_set="${4:-${TRAIN_CFG}}"
     local err pot_m err_m status_env status_tag status_rms
     is_fitted_mtp "${pot}" || return 1
     err="$(train_errors_log_for_tag "${tag}" "${logdir}")"
@@ -623,17 +667,26 @@ train_fully_complete() {
     else
         return 1
     fi
+    # A newer / larger train.cfg (AL merge) is not "already complete".
+    if [[ -n "${train_set}" && -f "${train_set}" ]]; then
+        train_set_current_for_pot "${pot}" "${train_set}" "${logdir}" || return 1
+    fi
     return 0
 }
 
 # BFGS finished and pot written, but calc-errors / status not done (mid-train crash).
+# Not pending if the train set changed — that needs a full BFGS, not postproc-only.
 train_postproc_pending() {
     local pot="${1:-${TRAINED_MTP}}"
     local tag="${2:-train}"
     local logdir="${3:-${MTP_AL_DIR}/logs}"
+    local train_set="${4:-${TRAIN_CFG}}"
     local tlog="${logdir}/${tag}.log"
     is_fitted_mtp "${pot}" || return 1
-    train_fully_complete "${pot}" "${tag}" "${logdir}" && return 1
+    train_fully_complete "${pot}" "${tag}" "${logdir}" "${train_set}" && return 1
+    if [[ -n "${train_set}" && -f "${train_set}" ]]; then
+        train_set_current_for_pot "${pot}" "${train_set}" "${logdir}" || return 1
+    fi
     train_log_bfgs_finished "${tlog}" || return 1
     return 0
 }

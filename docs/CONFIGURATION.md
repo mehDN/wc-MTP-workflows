@@ -77,8 +77,11 @@ Physical notes encoded in comments:
 | `WEIGHTING` | `vibrations` | MLIP weighting scheme |
 | `INIT_PARAMS` | `random` | Parameter initialization |
 | `TRAIN_FRESH` | `0` | `1` = ignore fitted pots; start from untrained template |
+| `TRAIN_FORCE` | `0` | `1` = always re-run BFGS (set by AL after merge and by `--labeled`) |
 | `TRAIN_RESUME` | `auto` | `auto` = continue from newest fitted pot; `1` = prefer curr; `0` = no auto-pick |
 | `TRAIN_START_MTP` | *(unset)* | Explicit start potential path |
+
+`train_fully_complete` (used by auto-resume) is **false** when `train.cfg` is newer than the pot or `TRAIN_N_CFG` in `train_status.env` does not match the current configuration count. That stops a leftover pot + error log from looking “done” after an AL merge. `train_status.env` records `TRAIN_N_CFG` on every fit.
 
 Training uses a **linear fit on a fixed basis** by default (nonlinear only if you change the workflow). Fitted pots are auto-discovered under `active_learning/` (`WC_L{level}_*.mtp`, `curr`, `trained`, refine stages).
 
@@ -152,7 +155,7 @@ External sources: `SOURCES_CONF` → default `datasets/sources.conf`.
 
 ## Active learning
 
-If the candidate pool is leftover AIMD staging frames, selected configs usually already have VASP `Energy` + forces. The driver merges those into `train.cfg` and retrains. New DFT is requested only when a selection has no Energy + forces.
+If the candidate pool is leftover AIMD staging frames, selected configs usually already have VASP `Energy` + forces. The driver merges those into `train.cfg` and retrains with `TRAIN_FORCE=1` (an existing pot is not treated as complete). New DFT is requested only when a selection has no Energy + forces.
 
 A cfg is **labeled** when it has a numeric `Energy` and `AtomData` force columns (`fx`/`fy`/`fz`). Detection: `scripts/cfg_label_status.py` (also `al_cfg_label_status` in `mtp_config.sh`).
 
@@ -178,7 +181,7 @@ Resume artifacts under `active_learning/iter_NNN/`:
 |------|------|
 | `dft_queue.cfg` | Selected configs; reused on resume (grade/select skipped) |
 | `unlabeled_queue.cfg` | Split remainder that still needs DFT (mixed queues) |
-| `merged.ok` | Stamp written after a successful merge + retrain |
+| `merged.ok` | Stamp written after a *verified* merge + retrain (`TRAIN_N_CFG=`, pot path). Empty or stale stamps (pot does not match `train.cfg`) are deleted and the iteration retrains |
 
 If no `datasets/candidates/*.cfg` exists, the fallback pool is the full AIMD staging set (`datasets/initial/staging/aimd_*.cfg`, not the stride-subsampled train set). That pool is cached as `datasets/candidates/_aimd_staging_pool.cfg` and rebuilt only when staging files are newer.
 

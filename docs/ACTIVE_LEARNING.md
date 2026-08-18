@@ -146,7 +146,7 @@ Grade and select-add run under **MPI** (`run_mlp`, default `MPI_NPROCS=19`).
 Configs with grade above `AL_SELECT_THRESHOLD` (default **3.0**) are preferred.  
 `AL_SELECTION_LIMIT` (default **50**) caps how many are queued (`0` = unlimited).
 
-`run_active_learning.sh` then inspects `dft_queue.cfg` with `cfg_label_status.py`. Already-labeled blocks are merged; unlabeled blocks pause for VASP.
+`run_active_learning.sh` then inspects `dft_queue.cfg` with `cfg_label_status.py`. Already-labeled blocks are merged and the MTP is force-retrained; unlabeled blocks pause for VASP.
 
 ---
 
@@ -157,9 +157,11 @@ If the candidate pool is the full AIMD staging set (`datasets/initial/staging/ai
 In that case `run_active_learning.sh`:
 
 1. Detects labeled vs unlabeled blocks (`scripts/cfg_label_status.py`).
-2. Merges the labeled ones into `train.cfg` and retrains — **no new VASP**.
+2. Merges the labeled ones into `train.cfg` and retrains with `TRAIN_FORCE=1` — **no new VASP**.
 3. Reuses an existing `iter_NNN/dft_queue.cfg` on resume (does not re-run grade/select).
-4. Writes `iter_NNN/merged.ok` after a successful retrain so that iteration is skipped later.
+4. Writes `iter_NNN/merged.ok` only after the pot matches the merged `train.cfg` (mtime / `TRAIN_N_CFG`). A skipped BFGS does **not** stamp the iteration done.
+
+Each AL iteration is **select → merge (if labeled) → BFGS retrain → next select**. Grade/select-add on the old pot after `train.cfg` grew would score the wrong model. If you see BFGS after `./run.sh --al`, that is the retrain half of the loop, not a detour.
 
 New VASP is requested only for selections that lack Energy + forces (typical MTP-MD / LAMMPS dumps).
 
@@ -204,9 +206,9 @@ This merges labels into `train.cfg` (via the workflow) and retrains. With auto-r
 For each iteration up to `AL_MAX_ITERATIONS` (default 20):
 
 1. Run select-add → `active_learning/iter_NNN/dft_queue.cfg` (skipped if that file already exists)  
-2. If the queue already has Energy + forces: merge into `train.cfg` and retrain  
+2. If the queue already has Energy + forces: merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`; resume-skip of an existing pot does not apply)  
 3. If some/all selections are unlabeled: **pause** (exit 10, workflow status `paused`) until you put labels in `datasets/labeled/` and re-run  
-4. After retrain, continue to the next iteration or stop if validation passes  
+4. After a verified retrain (`merged.ok` with `TRAIN_N_CFG=`), continue to the next iteration or stop if validation passes  
 
 If zero selections are returned, the loop treats the pool as covered for the current thresholds.
 
@@ -267,7 +269,7 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 | `active_learning/refine/high_force_error.cfg` | High force-error DFT subset (from refine) |
 | `active_learning/iter_*/dft_queue.cfg` | Selected configs (may already have Energy + forces) |
 | `active_learning/iter_*/unlabeled_queue.cfg` | Split remainder that still needs DFT |
-| `active_learning/iter_*/merged.ok` | Stamp after successful merge + retrain |
+| `active_learning/iter_*/merged.ok` | Stamp after verified merge + retrain (`TRAIN_N_CFG`, pot path). Empty/stale stamps are ignored |
 | `active_learning/iter_*/calc_grade.log` | Grade statistics |
 | `datasets/initial/train.cfg` | Growing training set |
 | `active_learning/workflow_state.env` | Orchestrator resume state |
@@ -293,7 +295,9 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 | Empty `dft_queue.cfg` | Pool already covered; generate more diverse MD/pathway frames or lower `AL_SELECT_THRESHOLD` |
 | AL asks for VASP on AIMD leftover frames | Should not happen: check that `dft_queue.cfg` has `Energy` + `fx` columns; rerun `./run.sh --al` (reuses the queue) |
 | AL status `paused` | Unlabeled selections need DFT; save `.cfg` to `datasets/labeled/` and rerun `./run.sh --al` |
-| Re-grade of a huge pool on every rerun | Should not happen: existing `iter_NNN/dft_queue.cfg` is reused until `merged.ok` |
+| Re-grade of a huge pool on every rerun | Should not happen: existing `iter_NNN/dft_queue.cfg` is reused until a *verified* `merged.ok` |
+| AL starts BFGS instead of grade/select | Expected after a merge: new labels must be fit before the next grade. That is the retrain half of the loop |
+| AL skipped BFGS after merging (`Already complete`) | Fixed: driver sets `TRAIN_FORCE=1` and `train_fully_complete` refuses to skip when `train.cfg` is newer or larger than the last fit. Delete a 0-byte `iter_*/merged.ok` if an old run stamped it after a skip |
 | Too many DFT jobs | Lower `AL_SELECTION_LIMIT`; leftover AIMD frames do not need new VASP |
 | Forces good on train, bad on vacancy MD | Candidate pool not covering the reconstruction path |
 | Template / level mismatch | Set `MTP_LEVEL` consistently; regenerate template via `ensure_mtp_template` |

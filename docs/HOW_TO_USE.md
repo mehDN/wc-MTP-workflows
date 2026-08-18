@@ -110,7 +110,7 @@ Logs go to `logs/run_YYYYMMDD_HHMMSS.log`. Step state: `active_learning/workflow
 | Pot trained + validated | Skips train; re-validates cheaply |
 | Mid-refine crash | Re-enters refine; skips completed continue rounds |
 | AL paused (`CURRENT_STATUS=paused`) | Reuses `iter_*/dft_queue.cfg`; merges if already labeled |
-| AL iter already merged (`merged.ok`) | Skips that iteration |
+| AL iter already merged (`merged.ok`) | Skips that iteration only if the pot still matches `train.cfg` |
 
 Concurrent second run while a step is live is blocked (PID recorded in state). Use `--fresh` only if that process is gone.
 
@@ -292,9 +292,9 @@ Short cycle:
 
 1. Optional: dump new MTP-MD / LAMMPS frames as `.cfg` into `datasets/candidates/`. Otherwise the leftover AIMD staging set is used.  
 2. `./run.sh --al`  
-3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and retrain. No new VASP.  
+3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`). No new VASP. BFGS after `--al` is the retrain half of the loop, not a skipped AL step.  
 4. Unlabeled selections only → run VASP, put `.cfg` in `datasets/labeled/`, re-run `./run.sh --al`.  
-5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a successful retrain, `iter_NNN/merged.ok` skips that iteration.
+5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a *verified* retrain, `iter_NNN/merged.ok` skips that iteration. A 0-byte stamp from a skipped BFGS is ignored.
 
 A pause for unlabeled DFT is `CURRENT_STATUS=paused` (exit 10), not a failed workflow.
 
@@ -384,6 +384,8 @@ Full list: [CONFIGURATION.md](CONFIGURATION.md). Source of truth: `scripts/mtp_c
 | Validation fails after refine | Add bulk + defect diversity; run AL; try `MTP_LEVEL=22` |
 | No AL candidates | Put `.cfg` files in `datasets/candidates/` or ensure staging AIMD cfgs exist |
 | AL paused for DFT on leftover AIMD | Queue should already be labeled; rerun `./run.sh --al` with the updated driver |
+| AL ran BFGS instead of grade/select | After a merge the pot must be refit before the next grade. Wait for train, then AL continues |
+| AL skipped BFGS after merge (`Already complete`) | Driver now sets `TRAIN_FORCE=1`; `train.cfg` newer/larger than the pot also blocks the skip. Remove a stale 0-byte `iter_*/merged.ok` if needed |
 | AL re-grades a huge pool | Existing `iter_*/dft_queue.cfg` should be reused; do not delete it |
 | Template regenerate loop | Ensure `MLIP_ROOT/untrained_mtps/` has the matching level file |
 | “Another workflow appears to be running” | Wait for PID, or kill stale process, or `./run.sh --fresh` if state is stale |

@@ -99,7 +99,7 @@ wc-MTP-workflows/                 # git clone
 │   └── iter_001/
 │       ├── dft_queue.cfg         # selected (may already have EFS)
 │       ├── unlabeled_queue.cfg   # only if mixed labeled/unlabeled
-│       └── merged.ok             # after merge + retrain
+│       └── merged.ok             # after verified merge + retrain (TRAIN_N_CFG)
 ├── logs/                         # orchestrator run logs
 ├── vac_W_2300/OUTCAR             # your AIMD (local)
 ├── vac_W_2500_ML/OUTCAR

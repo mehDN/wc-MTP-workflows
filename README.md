@@ -16,6 +16,7 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 - Optional **active learning** based on the MLIP **MaxVol / extrapolation-grade** strategy (D-optimality)
   - Selects configurations that most expand the training coverage in descriptor space
   - If a selection already has VASP `Energy` + forces (leftover AIMD/OUTCAR frames), it is **merged and retrained** — no new DFT
+  - Retrain after a merge always runs BFGS (`TRAIN_FORCE=1`); an existing pot is not treated as done, and `merged.ok` is written only after the pot matches the new `train.cfg`
   - New VASP is requested only for unlabeled MD/exploratory frames; that pause is recorded as `paused`, not a crash
   - Resume reuses `iter_NNN/dft_queue.cfg` so grade/select is not rerun
   - See [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) for the loop, MaxVol rationale, and when DFT is actually needed
@@ -115,7 +116,7 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 | 3. Train | Linear MTP fit (continues fitted pot if found) | `active_learning/WC_L20_trained.mtp` |
 | 4. Validate | Parse `calc-errors` vs thresholds | Pass/fail gate |
 | 4b. Refine | More BFGS, force retrain, high-error subset | `active_learning/refine/*.mtp` |
-| 5. AL (opt.) | Grade + select-add; merge already-labeled queues and retrain | `iter_*/dft_queue.cfg`, updated `train.cfg` |
+| 5. AL (opt.) | Grade + select-add; merge already-labeled queues and **force-retrain** | `iter_*/dft_queue.cfg`, updated `train.cfg` + refit pot |
 | 6. Per-traj (opt.) | One MTP per AIMD folder | Per-folder potentials |
 
 ### Resume behavior
@@ -126,7 +127,7 @@ By default (`AUTO_RESUME=1`), re-running `./run.sh` after a crash:
 - Continues train post-processing if BFGS finished but `calc-errors` died
 - Restores planned `--al` / `--per-traj` / refine intents from `active_learning/workflow_state.env`
 - If AL paused for unlabeled DFT (`CURRENT_STATUS=paused`), re-running `--al` continues from the existing queue
-- Existing `iter_NNN/dft_queue.cfg` is reused (no re-grade); `iter_NNN/merged.ok` skips a finished iteration
+- Existing `iter_NNN/dft_queue.cfg` is reused (no re-grade); `iter_NNN/merged.ok` skips a finished iteration only if the pot still matches the current `train.cfg` (stale stamps from a skipped BFGS are ignored)
 
 Force a full re-plan: `./run.sh --fresh`. Force random-init train (ignore fitted pots): `TRAIN_FRESH=1 ./run.sh --skip-dataset`.
 
