@@ -84,25 +84,21 @@ cp "${ALS_ITER}" "${ALS_FILE}" 2>/dev/null || true
 
 echo "[3/3] Summary"
 if [[ -f "${DFT_QUEUE}" ]]; then
-    N_SELECT="$(python3 - "${DFT_QUEUE}" <<'PY'
-import sys
-path = sys.argv[1]
-count = 0
-with open(path) as fh:
-    for line in fh:
-        if line.strip() == "BEGIN_CFG":
-            count += 1
-print(count)
-PY
-)"
-    echo "  Selected for DFT labeling: ${N_SELECT} configs"
+    eval "$(al_cfg_label_status "${DFT_QUEUE}")"
+    echo "  Selected: ${N_CFG} configs (${N_LABELED} already DFT-labeled, ${N_UNLABELED} need VASP)"
     echo "  DFT queue:  ${DFT_QUEUE}"
     echo "  Selected:   ${SELECTED_CFG}"
     echo
-    echo "Next steps:"
-    echo "  1. Run VASP on structures in ${DFT_QUEUE}"
-    echo "  2. Convert OUTCARs and merge into ${TRAIN_CFG}"
-    echo "  3. Retrain: ./scripts/train_mtp.sh"
+    if [[ "${N_CFG}" -gt 0 && "${N_UNLABELED}" -eq 0 ]]; then
+        echo "Next steps:"
+        echo "  Queue already has Energy + forces — merge into ${TRAIN_CFG} and retrain"
+        echo "  (run_active_learning.sh does this automatically)."
+    else
+        echo "Next steps:"
+        echo "  1. Run VASP on unlabeled structures in ${DFT_QUEUE}"
+        echo "  2. Convert OUTCARs and save to ${AL_LABELED_DIR}/"
+        echo "  3. Rerun: ./scripts/run_active_learning.sh"
+    fi
 else
     echo "  No new configurations selected (model may be converged for this pool)."
 fi

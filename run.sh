@@ -6,7 +6,8 @@
 #   2. Build training dataset from W-vacancy AIMD OUTCARs + sources.conf
 #   3. Train MTP (linear fit on fixed basis)
 #   4. Validate against convergence thresholds
-#   5. (optional) Active-learning loop on MD/exploratory candidate pool
+#   5. (optional) Active-learning loop: leftover AIMD frames are already
+#      DFT-labeled and are merged + retrained; new VASP only if unlabeled
 #   6. (optional) Per-trajectory MTP fits
 #
 # Resume (default):
@@ -114,14 +115,16 @@ Refine sequence (when force RMS fails or BFGS hits step limit):
   4. Check min cutoff vs mindist; then AL or MTP_LEVEL=22 if still stuck
 
 Active-learning loop (after initial fit on bulk + relaxed defect configs):
-  1. Run MTP relaxation/MD on unreconstructed W-vacancy supercell
-  2. Dump frames to datasets/candidates/
-  3. ./run.sh --al
-  4. Label selected configs with VASP (PBE, ENCUT 450-500 eV), save to datasets/labeled/
-  5. Repeat until reconstructed dimer is stable ground state (~3-4 eV lowering)
+  1. Grade the candidate pool (MD frames in datasets/candidates/, or leftover
+     already-labeled AIMD frames from datasets/initial/staging/)
+  2. If selected configs already have Energy + forces: merge + retrain
+  3. Only unlabeled selections need new VASP (PBE, ENCUT 450-500 eV) —
+     save those to datasets/labeled/ and rerun ./run.sh --al
+  4. Repeat until reconstructed dimer is stable ground state (~3-4 eV lowering)
 
-After labeling, continue with:
+Resume after a pause or crash:
   ./run.sh --al
+  Existing iter_NNN/dft_queue.cfg is reused (no re-grade).
 EOF
 }
 
@@ -170,6 +173,22 @@ workflow_fail_hook() {
     if [[ ${rc} -eq 0 ]]; then
         return 0
     fi
+    # AL pause (unlabeled selections need VASP) is not a crash.
+    if [[ ${rc} -eq "${AL_PAUSE_EXIT}" && "${WF_CURRENT}" == "al" ]]; then
+        workflow_write_state \
+            "CURRENT_STEP=al" \
+            "CURRENT_STATUS=paused" \
+            "FAIL_REASON=awaiting_dft_labels" \
+            "RUN_PID=$$" \
+            "WANT_AL=${DO_AL}" \
+            "WANT_REFINE=${DO_REFINE}" \
+            "WANT_PER_TRAJ=${DO_PER_TRAJ}" \
+            2>/dev/null || true
+        echo "Active learning paused — waiting for DFT labels." >&2
+        echo "  Save labeled cfg to ${AL_LABELED_DIR}/ then: ./run.sh --al" >&2
+        echo "  State:  ${WORKFLOW_STATE_FILE}" >&2
+        return 0
+    fi
     if [[ -n "${WF_CURRENT}" ]]; then
         workflow_write_state \
             "CURRENT_STEP=${WF_CURRENT}" \
@@ -215,6 +234,9 @@ apply_auto_resume() {
             if [[ "${hint}" == "al" && "${DO_AL}" != "1" && "${WANT_AL:-0}" == "1" ]]; then
                 DO_AL=1
                 log "  Resuming planned active-learning step."
+            fi
+            if [[ "${hint}" == "al" && "${CURRENT_STATUS:-}" == "paused" ]]; then
+                log "  Previous AL pause: will reuse existing iter queues if present."
             fi
             if [[ "${hint}" == "per-traj" && "${DO_PER_TRAJ}" != "1" && "${WANT_PER_TRAJ:-0}" == "1" ]]; then
                 DO_PER_TRAJ=1
@@ -551,8 +573,29 @@ fi
 if [[ "${DO_AL}" == "1" ]]; then
     step_header 5 "Active learning (grade threshold ${AL_SELECT_THRESHOLD})"
     workflow_begin_step al
+    set +e
     bash "${SCRIPTS}/run_active_learning.sh" ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
         2>&1 | tee -a "${RUN_LOG}"
+    al_rc=${PIPESTATUS[0]}
+    set -e
+    if [[ "${al_rc}" -eq "${AL_PAUSE_EXIT}" ]]; then
+        log "Active learning paused — unlabeled selections need DFT labels."
+        log "  Save labeled cfg to ${AL_LABELED_DIR}/ then: ./run.sh --al"
+        workflow_write_state \
+            "CURRENT_STEP=al" \
+            "CURRENT_STATUS=paused" \
+            "FAIL_REASON=awaiting_dft_labels" \
+            "WANT_AL=1" \
+            "WANT_REFINE=${DO_REFINE}" \
+            "WANT_PER_TRAJ=${DO_PER_TRAJ}"
+        WF_CURRENT=""
+        log ""
+        log "Workflow paused at active learning: $(date)"
+        log "  State: ${WORKFLOW_STATE_FILE}"
+        exit 0
+    elif [[ "${al_rc}" -ne 0 ]]; then
+        exit "${al_rc}"
+    fi
     workflow_finish_step al
 fi
 [[ "${ONLY_STEP}" == "al" ]] && exit 0

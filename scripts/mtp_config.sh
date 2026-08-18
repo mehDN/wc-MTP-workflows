@@ -208,6 +208,9 @@ AL_GRADE_THRESHOLD="${AL_GRADE_THRESHOLD:-${AL_SELECT_THRESHOLD}}"
 AL_SELECTION_LIMIT="${AL_SELECTION_LIMIT:-50}"
 AL_MAX_ITERATIONS="${AL_MAX_ITERATIONS:-20}"
 AL_PREFER_HIGH_FORCE_ERROR="${AL_PREFER_HIGH_FORCE_ERROR:-1}"
+# Exit code from run_active_learning.sh when selections still need VASP.
+# Already-labeled queues (AIMD/OUTCAR leftover frames) are merged instead.
+AL_PAUSE_EXIT="${AL_PAUSE_EXIT:-10}"
 
 # --- Validation convergence targets (held-out test set) ---
 VAL_FORCE_RMS_MAX="${VAL_FORCE_RMS_MAX:-0.08}"       # eV/A
@@ -456,8 +459,21 @@ resolve_al_candidate_cfg() {
 
     if [[ ${#files[@]} -gt 0 ]]; then
         local fallback="${AL_CANDIDATES_DIR}/_aimd_staging_pool.cfg"
-        python3 "${MTP_PROJECT_ROOT}/scripts/merge_cfg.py" \
-            "${fallback}" "${files[@]}" --dedupe >/dev/null
+        local need_rebuild=1
+        if [[ -s "${fallback}" ]]; then
+            need_rebuild=0
+            local f
+            for f in "${files[@]}"; do
+                if [[ "${f}" -nt "${fallback}" ]]; then
+                    need_rebuild=1
+                    break
+                fi
+            done
+        fi
+        if [[ "${need_rebuild}" == "1" ]]; then
+            python3 "${MTP_PROJECT_ROOT}/scripts/merge_cfg.py" \
+                "${fallback}" "${files[@]}" --dedupe >/dev/null
+        fi
         echo "${fallback}"
         return 0
     fi
@@ -499,6 +515,11 @@ resolve_al_labeled_cfg() {
         return 0
     fi
     return 1
+}
+
+# Print N_CFG / N_LABELED / N_UNLABELED for a .cfg (Energy + forces = labeled).
+al_cfg_label_status() {
+    python3 "${MTP_PROJECT_ROOT}/scripts/cfg_label_status.py" "$1"
 }
 
 ensure_mtp_template() {
@@ -701,7 +722,7 @@ workflow_infer_resume_point() {
 
     # Interrupted step takes priority over "last completed", but advance past
     # steps that finished on disk after the crash (e.g. manual recovery).
-    if [[ "${status}" == "running" || "${status}" == "failed" ]]; then
+    if [[ "${status}" == "running" || "${status}" == "failed" || "${status}" == "paused" ]]; then
         case "${current}" in
             dataset)
                 if dataset_step_complete; then

@@ -285,10 +285,10 @@ Goal: select structures where the MTP extrapolates (high maxvol grade), label wi
 
 Short cycle:
 
-1. Dump candidate frames as MLIP `.cfg` into `datasets/candidates/`.  
+1. Dump candidate frames as MLIP `.cfg` into `datasets/candidates/` (or rely on leftover AIMD staging frames).  
 2. `./run.sh --al`  
-3. Label selected configs with VASP → put `.cfg` in `datasets/labeled/`.  
-4. `./run.sh --labeled datasets/labeled/my_new_labels.cfg` then AL again.  
+3. If the queue already has Energy + forces (AIMD/OUTCAR leftovers), they are merged and the MTP is retrained automatically.  
+4. Only unlabeled selections need VASP → put `.cfg` in `datasets/labeled/` and re-run `./run.sh --al`.  
 
 If refine produced `active_learning/refine/high_force_error.cfg`, that subset is a useful prioritization list for labeling (already DFT-labeled configs with high MTP force error).
 

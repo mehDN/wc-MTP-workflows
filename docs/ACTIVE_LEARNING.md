@@ -146,10 +146,25 @@ Configs with grade above `AL_SELECT_THRESHOLD` (default **3.0**) are preferred f
 
 ---
 
+## Already-labeled selections (AIMD leftover frames)
+
+If the candidate pool is the full AIMD staging set (`datasets/initial/staging/aimd_*.cfg`), selected configs usually **already have** VASP `Energy` + forces from the original OUTCARs.
+
+In that case `run_active_learning.sh`:
+
+1. Detects labeled vs unlabeled blocks (`scripts/cfg_label_status.py`).
+2. Merges the labeled ones into `train.cfg` and retrains — **no new VASP**.
+3. Reuses an existing `iter_NNN/dft_queue.cfg` on resume (does not re-run grade/select).
+4. Writes `iter_NNN/merged.ok` after a successful retrain so that iteration is skipped later.
+
+New VASP is requested only for selections that lack Energy + forces (typical MTP-MD / LAMMPS dumps).
+
+---
+
 ## Label with DFT
 
-1. Open `active_learning/<label>/dft_queue.cfg` (or `selected.cfg`).  
-2. Convert each structure to a VASP job (or your preferred DFT code).  
+1. Open `active_learning/<label>/dft_queue.cfg` (or `unlabeled_queue.cfg` if a mixed queue was split).  
+2. Convert each **unlabeled** structure to a VASP job (or your preferred DFT code).  
 3. Use **the same settings** as the original training data:
 
    - PBE, PAW W_sv + C  
@@ -184,9 +199,10 @@ This merges labels into `train.cfg` (via the workflow) and retrains. With auto-r
 
 For each iteration up to `AL_MAX_ITERATIONS` (default 20):
 
-1. Run select-add → `active_learning/iter_NNN/dft_queue.cfg`  
-2. **Stop for DFT** when a non-empty queue is produced (you label offline)  
-3. When new labels appear in `datasets/labeled/`, re-run merge + train + next select  
+1. Run select-add → `active_learning/iter_NNN/dft_queue.cfg` (skipped if that file already exists)  
+2. If the queue already has Energy + forces: merge into `train.cfg` and retrain  
+3. If some/all selections are unlabeled: **pause** (exit 10, workflow status `paused`) until you put labels in `datasets/labeled/` and re-run  
+4. After retrain, continue to the next iteration or stop if validation passes  
 
 If zero selections are returned, the loop treats the pool as covered for the current thresholds.
 
@@ -204,13 +220,12 @@ If zero selections are returned, the loop treats the pool as covered for the cur
    ./run.sh --al          # or --only refine first if force RMS high
               │
               ▼
-   active_learning/iter_*/dft_queue.cfg  ──►  VASP labels
+   active_learning/iter_*/dft_queue.cfg
               │
-              ▼
-   datasets/labeled/*.cfg
+              ├── already has Energy + forces ──► merge + retrain
               │
-              ▼
-   ./run.sh --labeled datasets/labeled/new.cfg
+              └── unlabeled ──► VASP ──► datasets/labeled/*.cfg
+                                      └── ./run.sh --al
               │
               ▼
    validate / refine; if dimer not stable or forces high → next AL round
