@@ -4,7 +4,7 @@ Orchestration scripts for **Moment Tensor Potential (MTP)** training and active 
 
 Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-workflows)
 
-This repo ships **pipelines, config, and small MTP templates**. Large VASP trajectories, built training sets, and trained potentials stay local (see [What is not committed](#what-is-not-committed)).
+This repository uses **pipelines, config, and small MTP templates**. Large VASP trajectories, built training sets, and trained potentials stay local (see [What is not committed](#what-is-not-committed)).
 
 ## Features
 
