@@ -4,7 +4,7 @@ Orchestration scripts for **Moment Tensor Potential (MTP)** training and active 
 
 Repository: [github.com/mehDN/wc-MTP-workflows](https://github.com/mehDN/wc-MTP-workflows)
 
-This repository uses **pipelines, config, and small MTP templates**. Large VASP trajectories, built training sets, and trained potentials stay local (see [What is not committed](#what-is-not-committed)).
+This repo ships **pipelines, config, and small MTP templates**. Large VASP trajectories, built training sets, and trained potentials stay local (see [What is not committed](#what-is-not-committed)).
 
 ## Features
 
@@ -91,7 +91,7 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 # Or list extra paths in datasets/sources.conf
 
 ./run.sh                 # dataset → train → validate (+ auto-refine if needed)
-./run.sh --al            # same + AL (auto-merges already-labeled leftover AIMD frames)
+./run.sh --al            # same + AL loop (all iters until cap or pool exhausted)
 ./run.sh                 # re-run after crash or AL pause: auto-resumes
 ```
 
@@ -144,7 +144,7 @@ Force a full re-plan: `./run.sh --fresh`. Force random-init train (ignore fitted
 ./run.sh --only refine            # continue BFGS / force retrain from existing pot
 ./run.sh --refine                 # force refine after train
 ./run.sh --skip-refine            # never auto-refine on validate fail
-./run.sh --al                     # AL: merge leftover AIMD labels or pause for VASP
+./run.sh --al                     # AL loop: each iter merge+retrain then the next, up to 20
 ./run.sh --al --candidates path/to/pool.cfg
 ./run.sh --labeled datasets/labeled/new.cfg   # merge new DFT labels before retrain
 ./run.sh --per-traj               # also fit per-AIMD-trajectory MTPs

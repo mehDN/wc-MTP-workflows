@@ -167,7 +167,7 @@ _refine_salvage_status_from_log() {
         rm -f "${err}"
         return 1
     fi
-    cp "${err}" "${LOGDIR}/calc_errors_train.log"
+    cp_unless_same "${err}" "${LOGDIR}/calc_errors_train.log"
 
     force_rms="$(python3 - "${err}" <<'PY'
 import re, sys
@@ -212,6 +212,8 @@ PY
         echo "ENERGY_WEIGHT=${EFFECTIVE_ENERGY_WEIGHT:-${ENERGY_WEIGHT}}"
         echo "FORCE_WEIGHT=${EFFECTIVE_FORCE_WEIGHT:-${FORCE_WEIGHT}}"
         echo "STRESS_WEIGHT=${EFFECTIVE_STRESS_WEIGHT:-${STRESS_WEIGHT}}"
+        echo "POSTPROC_PENDING=0"
+        echo "TRAIN_N_CFG=$(cfg_n_configurations "${cfg}" 2>/dev/null || echo "")"
     } > "${LOGDIR}/train_status.env"
 
     FORCE_RMS="${force_rms}"

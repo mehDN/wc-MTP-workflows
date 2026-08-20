@@ -122,11 +122,15 @@ Active-learning loop (after initial fit on bulk + relaxed defect configs):
      (BFGS is forced; resume-skip of an existing pot does not apply)
   3. Only unlabeled selections need new VASP (PBE, ENCUT 450-500 eV) —
      save those to datasets/labeled/ and rerun ./run.sh --al
-  4. Repeat until reconstructed dimer is stable ground state (~3-4 eV lowering)
+  4. Repeat automatically until AL_MAX_ITERATIONS (default 20) or the
+     candidate pool yields zero selections. A crash mid-iter is retried;
+     completed iters are skipped. Unlabeled DFT still pauses (exit 10).
 
 Resume after a pause or crash:
   ./run.sh --al
   Existing iter_NNN/dft_queue.cfg is reused (no re-grade).
+  Completed iter_NNN/merged.ok stamps are skipped; the next unfinished
+  iteration starts automatically.
 EOF
 }
 
@@ -587,36 +591,49 @@ fi
 if [[ "${DO_AL}" == "1" ]]; then
     step_header 5 "Active learning (grade threshold ${AL_SELECT_THRESHOLD})"
     workflow_begin_step al
-    set +e
-    # Line-buffer AL progress so "Retraining..." is not stuck behind tee.
-    if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL bash "${SCRIPTS}/run_active_learning.sh" \
-            ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
-            2>&1 | tee -a "${RUN_LOG}"
-    else
-        bash "${SCRIPTS}/run_active_learning.sh" ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
-            2>&1 | tee -a "${RUN_LOG}"
-    fi
-    al_rc=${PIPESTATUS[0]}
-    set -e
-    if [[ "${al_rc}" -eq "${AL_PAUSE_EXIT}" ]]; then
-        log "Active learning paused — unlabeled selections need DFT labels."
-        log "  Save labeled cfg to ${AL_LABELED_DIR}/ then: ./run.sh --al"
-        workflow_write_state \
-            "CURRENT_STEP=al" \
-            "CURRENT_STATUS=paused" \
-            "FAIL_REASON=awaiting_dft_labels" \
-            "WANT_AL=1" \
-            "WANT_REFINE=${DO_REFINE}" \
-            "WANT_PER_TRAJ=${DO_PER_TRAJ}"
-        WF_CURRENT=""
-        log ""
-        log "Workflow paused at active learning: $(date)"
-        log "  State: ${WORKFLOW_STATE_FILE}"
-        exit 0
-    elif [[ "${al_rc}" -ne 0 ]]; then
-        exit "${al_rc}"
-    fi
+    al_restarts=0
+    while true; do
+        set +e
+        # Line-buffer AL progress so "Retraining..." is not stuck behind tee.
+        if command -v stdbuf >/dev/null 2>&1; then
+            stdbuf -oL -eL bash "${SCRIPTS}/run_active_learning.sh" \
+                ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
+                2>&1 | tee -a "${RUN_LOG}"
+        else
+            bash "${SCRIPTS}/run_active_learning.sh" ${CANDIDATES_CFG:+"${CANDIDATES_CFG}"} \
+                2>&1 | tee -a "${RUN_LOG}"
+        fi
+        al_rc=${PIPESTATUS[0]}
+        set -e
+        if [[ "${al_rc}" -eq "${AL_PAUSE_EXIT}" ]]; then
+            log "Active learning paused — unlabeled selections need DFT labels."
+            log "  Save labeled cfg to ${AL_LABELED_DIR}/ then: ./run.sh --al"
+            workflow_write_state \
+                "CURRENT_STEP=al" \
+                "CURRENT_STATUS=paused" \
+                "FAIL_REASON=awaiting_dft_labels" \
+                "WANT_AL=1" \
+                "WANT_REFINE=${DO_REFINE}" \
+                "WANT_PER_TRAJ=${DO_PER_TRAJ}"
+            WF_CURRENT=""
+            log ""
+            log "Workflow paused at active learning: $(date)"
+            log "  State: ${WORKFLOW_STATE_FILE}"
+            exit 0
+        fi
+        if [[ "${al_rc}" -eq 0 ]] || al_loop_finished; then
+            break
+        fi
+        al_restarts=$((al_restarts + 1))
+        if (( al_restarts > AL_LOOP_RESTARTS )); then
+            log "Active learning driver failed (exit ${al_rc}) after ${al_restarts} restarts."
+            log "  Completed iters: $(al_completed_iter_count)/${AL_MAX_ITERATIONS}"
+            exit "${al_rc}"
+        fi
+        log "AL driver exited ${al_rc}; restarting remaining iterations (${al_restarts}/${AL_LOOP_RESTARTS})."
+        log "  Completed so far: $(al_completed_iter_count)/${AL_MAX_ITERATIONS}"
+        sleep 2
+    done
     workflow_finish_step al
 fi
 [[ "${ONLY_STEP}" == "al" ]] && exit 0

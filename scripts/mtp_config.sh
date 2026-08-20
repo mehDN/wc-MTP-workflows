@@ -223,6 +223,12 @@ AL_LABELED_SELECTION_LIMIT="${AL_LABELED_SELECTION_LIMIT:-0}"
 # with EFFECTIVE_MAX_ITER if you want a longer fit.
 AL_RETRAIN_MAX_ITER="${AL_RETRAIN_MAX_ITER:-400}"
 AL_MAX_ITERATIONS="${AL_MAX_ITERATIONS:-20}"
+# How many times run.sh restarts the AL driver after a crash (completed
+# iters are skipped). Unlabeled DFT still pauses (AL_PAUSE_EXIT).
+AL_LOOP_RESTARTS="${AL_LOOP_RESTARTS:-20}"
+# Stop the AL loop early if a holdout calc_errors_valid.log already passes.
+# Default 0: keep iterating until AL_MAX_ITERATIONS or the pool is exhausted.
+AL_STOP_ON_VALID="${AL_STOP_ON_VALID:-0}"
 AL_PREFER_HIGH_FORCE_ERROR="${AL_PREFER_HIGH_FORCE_ERROR:-1}"
 # Exit code from run_active_learning.sh when selections still need VASP.
 # Already-labeled queues (AIMD/OUTCAR leftover frames) are merged instead.
@@ -256,6 +262,7 @@ ALS_FILE="${ALS_FILE:-${MTP_AL_DIR}/state.als}"
 # AUTO_RESUME=1 (default): ./run.sh skips steps already completed on disk.
 # --fresh / AUTO_RESUME=0: ignore state and re-run selected steps.
 WORKFLOW_STATE_FILE="${WORKFLOW_STATE_FILE:-${MTP_AL_DIR}/workflow_state.env}"
+AL_PROGRESS_FILE="${AL_PROGRESS_FILE:-${MTP_AL_DIR}/al_loop.env}"
 AUTO_RESUME="${AUTO_RESUME:-1}"
 
 # Active-learning auto-discovery directories
@@ -648,6 +655,30 @@ train_errors_log_for_tag() {
     fi
 }
 
+# Copy src → dest unless they are the same file. GNU cp errors on that
+# (exit 1), which under set -e aborted train postproc when TRAIN_TAG=train
+# (ERR_LOG is already calc_errors_train.log).
+cp_unless_same() {
+    local src="${1:-}" dest="${2:-}"
+    [[ -n "${src}" && -n "${dest}" && -f "${src}" ]] || return 1
+    if [[ -e "${dest}" && "${src}" -ef "${dest}" ]]; then
+        return 0
+    fi
+    cp "${src}" "${dest}"
+}
+
+# True if a calc-errors log has an Errors report and is not substantially
+# older than the pot (same 30s NFS skew as train_fully_complete).
+errors_log_current_for_pot() {
+    local err="${1:-}" pot="${2:-}"
+    local pot_m err_m
+    errors_report_ok "${err}" || return 1
+    [[ -n "${pot}" && -f "${pot}" ]] || return 1
+    pot_m=$(stat -c %Y "${pot}" 2>/dev/null || stat -f %m "${pot}" 2>/dev/null || echo 0)
+    err_m=$(stat -c %Y "${err}" 2>/dev/null || stat -f %m "${err}" 2>/dev/null || echo 0)
+    (( err_m + 30 >= pot_m ))
+}
+
 # Training fully finished for pot + tag: fitted pot + matching calc-errors log
 # written at/after the pot (so a newer refine pot does not look "done" from an
 # old errors file), and the training set has not grown/been rewritten since.
@@ -712,6 +743,40 @@ dataset_step_complete() {
 # Train step complete for the default trained pot.
 train_step_complete() {
     train_fully_complete "${TRAINED_MTP}" "train" "${MTP_AL_DIR}/logs"
+}
+
+# Number of AL iterations with a non-empty merged.ok stamp.
+al_completed_iter_count() {
+    local n=0 f
+    while IFS= read -r f; do
+        [[ -s "${f}" ]] || continue
+        n=$((n + 1))
+    done < <(find "${MTP_AL_DIR}" -mindepth 2 -maxdepth 2 -type f -name merged.ok 2>/dev/null)
+    echo "${n}"
+}
+
+# True if AL has hit the iteration cap or marked the candidate pool as covered.
+al_loop_finished() {
+    local n
+    [[ -f "${MTP_AL_DIR}/al_converged.ok" ]] && return 0
+    n="$(al_completed_iter_count)"
+    [[ "${n}" -ge "${AL_MAX_ITERATIONS}" ]]
+}
+
+# Persist AL loop progress (sourced by resume / restart).
+# Usage: al_write_progress <iter> <label> <status>
+al_write_progress() {
+    local iter="${1:-0}" label="${2:-}" status="${3:-running}"
+    mkdir -p "${MTP_AL_DIR}"
+    {
+        echo "LAST_COMPLETED_ITER=${iter}"
+        echo "LAST_LABEL=$(printf '%q' "${label}")"
+        echo "STATUS=$(printf '%q' "${status}")"
+        echo "COMPLETED_ITERS=$(al_completed_iter_count)"
+        echo "AL_MAX_ITERATIONS=${AL_MAX_ITERATIONS}"
+        echo "UPDATED=$(date -Iseconds 2>/dev/null || date)"
+    } > "${AL_PROGRESS_FILE}.tmp"
+    mv -f "${AL_PROGRESS_FILE}.tmp" "${AL_PROGRESS_FILE}"
 }
 
 # Persist workflow state (safe to call from subshells; overwrites file).

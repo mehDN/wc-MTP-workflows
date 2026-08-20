@@ -168,7 +168,9 @@ A cfg is **labeled** when it has a numeric `Energy` and `AtomData` force columns
 | `AL_SELECTION_LIMIT` | `50` | Max structures per select-add for **unlabeled** pools (`0` = unlimited) |
 | `AL_LABELED_SELECTION_LIMIT` | `0` | Cap when the candidate pool is already DFT-labeled leftover AIMD (`0` = take the full MaxVol set; avoids another 9 h select-add for the next 50) |
 | `AL_RETRAIN_MAX_ITER` | `400` | BFGS budget after an AL / `--labeled` merge (a fitted pot does not need a 2000-iter refine) |
-| `AL_MAX_ITERATIONS` | `20` | Cap for `run_active_learning.sh` |
+| `AL_MAX_ITERATIONS` | `20` | Cap for `run_active_learning.sh` (loop continues to this cap unless the pool is exhausted) |
+| `AL_LOOP_RESTARTS` | `20` | Times `run.sh` restarts the AL driver after a crash (completed iters skipped) |
+| `AL_STOP_ON_VALID` | `0` | `1` = stop the AL loop early when holdout `calc_errors_valid.log` already passes |
 | `AL_PREFER_HIGH_FORCE_ERROR` | `1` | Announce refine high-error subset as AL focus material |
 | `AL_PAUSE_EXIT` | `10` | Exit code when unlabeled selections still need VASP (`run.sh` records `CURRENT_STATUS=paused`) |
 | `AL_CANDIDATE_CFG` | *(unset)* | Explicit candidate pool path |

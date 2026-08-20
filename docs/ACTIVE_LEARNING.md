@@ -207,11 +207,13 @@ This merges labels into `train.cfg` (via the workflow) and retrains. With auto-r
 For each iteration up to `AL_MAX_ITERATIONS` (default 20):
 
 1. Run select-add → `active_learning/iter_NNN/dft_queue.cfg` (skipped if that file already exists)  
-2. If the queue already has Energy + forces: merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`; resume-skip of an existing pot does not apply)  
+2. If the queue already has Energy + forces: merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`; resume-skip of an existing pot does not apply). An unchanged merge does not rewrite `train.cfg`. If BFGS already finished and only `train_status.env` / calc-errors sealing is missing, resume post-processing only (no second BFGS).  
 3. If some/all selections are unlabeled: **pause** (exit 10, workflow status `paused`) until you put labels in `datasets/labeled/` and re-run  
-4. After a verified retrain (`merged.ok` with `TRAIN_N_CFG=`), continue to the next iteration or stop if validation passes  
+4. After a verified retrain (`merged.ok` with `TRAIN_N_CFG=`), **automatically start the next iteration** until `AL_MAX_ITERATIONS` or the pool yields zero selections  
 
-If zero selections are returned, the loop treats the pool as covered for the current thresholds.
+If a retrain crashes, `run.sh --al` restarts the driver (up to `AL_LOOP_RESTARTS`, default 20). Stamped iters are skipped; the unfinished iter is retried. Set `AL_STOP_ON_VALID=1` to stop early when a holdout `calc_errors_valid.log` already passes.
+
+If zero selections are returned, the loop treats the pool as covered (`active_learning/al_converged.ok`).
 
 ---
 
@@ -252,6 +254,8 @@ If zero selections are returned, the loop treats the pool as covered for the cur
 | `AL_LABELED_SELECTION_LIMIT` | 0 (unlimited) | Take the full MaxVol set when the pool is already labeled. Yesterday’s leftover-AIMD pass wanted 233 configs but the 50-cap forced ~5 more 9-hour select-add rounds |
 | `AL_RETRAIN_MAX_ITER` | 400 | BFGS steps after merge. Default 2000 is a multi-day refine, not an AL update |
 | `AL_MAX_ITERATIONS` | 20 | Safety cap on automated driver |
+| `AL_LOOP_RESTARTS` | 20 | Times `run.sh` restarts the AL driver after a crash |
+| `AL_STOP_ON_VALID` | 0 | `1` = stop early if holdout errors already pass |
 | `AL_PREFER_HIGH_FORCE_ERROR` | 1 | Surface refine high-error subset as AL focus |
 | `AL_PAUSE_EXIT` | 10 | Driver exit when unlabeled selections still need DFT |
 

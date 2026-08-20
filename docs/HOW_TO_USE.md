@@ -230,7 +230,7 @@ Increase level if defect forces remain bad after active learning:
 MTP_LEVEL=22 ./run.sh --skip-dataset
 ```
 
-Train writes status to `active_learning/logs/train_status.env` (`FORCE_RMS`, `STEP_LIMIT`, weights, paths) and tags logs as `calc_errors_<tag>.log`.
+Train writes status to `active_learning/logs/train_status.env` (`FORCE_RMS`, `STEP_LIMIT`, weights, paths) and tags logs as `calc_errors_<tag>.log`. For the default tag `train`, that log *is* `calc_errors_train.log`; postproc no longer `cp`s the file onto itself (GNU cp used to abort there under `set -e`). If BFGS finished but status was not sealed, `TRAIN_RESUME_POSTPROC=1 ./scripts/train_mtp.sh` reuses the existing errors log and writes `FORCE_RMS` / `POSTPROC_PENDING=0`.
 
 ---
 
@@ -291,10 +291,10 @@ The initial `train.cfg` is a **stride subsample** of the AIMD OUTCARs (every 25t
 Short cycle:
 
 1. Optional: dump new MTP-MD / LAMMPS frames as `.cfg` into `datasets/candidates/`. Otherwise the leftover AIMD staging set is used.  
-2. `./run.sh --al`  
+2. `./run.sh --al` — one command runs **all** AL iterations up to `AL_MAX_ITERATIONS` (default 20). After each verified retrain it starts the next grade/select automatically.  
 3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`, `AL_RETRAIN_MAX_ITER=400`). Leftover AIMD is not capped at 50 — the full MaxVol set is merged in one pass. No new VASP.  
-4. Unlabeled selections only → run VASP, put `.cfg` in `datasets/labeled/`, re-run `./run.sh --al`.  
-5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a *verified* retrain, `iter_NNN/merged.ok` skips that iteration. A 0-byte stamp from a skipped BFGS is ignored.
+4. Unlabeled selections only → run VASP, put `.cfg` in `datasets/labeled/`, re-run `./run.sh --al` (the loop then continues remaining iters).  
+5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a *verified* retrain, `iter_NNN/merged.ok` skips that iteration. A crash mid-iter is retried (`AL_LOOP_RESTARTS`); completed stamps are skipped. A 0-byte stamp from a skipped BFGS is ignored.
 
 A pause for unlabeled DFT is `CURRENT_STATUS=paused` (exit 10), not a failed workflow.
 

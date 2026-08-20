@@ -257,44 +257,52 @@ STATUS_ENV="${LOGDIR}/train_status.env"
 
 echo "[3/4] Training-set errors"
 ERR_LOG="${LOGDIR}/calc_errors_${TRAIN_TAG}.log"
-# Prefer MPI; fall back to serial if mpirun cannot exec mlp (common after
-# multi-day runs when NFS+krb5 tickets expire — see ensure_mlp in mtp_config.sh).
-if ! run_mlp_or_serial calc-errors "${OUTPUT_MTP}" "${TRAIN_SET}" \
-        2>&1 | tee "${ERR_LOG}"; then
-    # Last resort: mlp train already printed "* * * TRAIN ERRORS * * *"
-    if grep -q "Errors report" "${TRAIN_LOG}" 2>/dev/null; then
-        echo "WARNING: calc-errors failed; salvaging TRAIN ERRORS from ${TRAIN_LOG}" >&2
-        # Extract the errors report block from the end of the train log.
-        awk '
-            /\* \* \* TRAIN ERRORS \* \* \*/ {grab=1}
-            grab {print}
-            /^_{10,}/ && seen_header {if (++ends>=2) exit}
-            grab && /Errors report/ {seen_header=1}
-        ' "${TRAIN_LOG}" > "${ERR_LOG}"
-    else
-        echo "calc-errors failed and no TRAIN ERRORS in train log" >&2
-        exit 1
-    fi
+REUSE_ERRORS=0
+if [[ "${SKIP_BFGS}" == "1" ]] && errors_log_current_for_pot "${ERR_LOG}" "${OUTPUT_MTP}"; then
+    REUSE_ERRORS=1
+    echo "  Reusing existing errors log: ${ERR_LOG}"
 fi
-# Reject logs that only contain mpirun launch failures (incomplete prior runs).
-if ! grep -q "Errors report" "${ERR_LOG}"; then
-    # Second chance: salvage from train log even if tee wrote an error banner.
-    if grep -q "Errors report" "${TRAIN_LOG}" 2>/dev/null; then
-        echo "WARNING: calc-errors log incomplete; salvaging TRAIN ERRORS from ${TRAIN_LOG}" >&2
-        awk '
-            /\* \* \* TRAIN ERRORS \* \* \*/ {grab=1}
-            grab {print}
-            /^_{10,}/ && seen_header {if (++ends>=2) exit}
-            grab && /Errors report/ {seen_header=1}
-        ' "${TRAIN_LOG}" > "${ERR_LOG}"
+if [[ "${REUSE_ERRORS}" != "1" ]]; then
+    # Prefer MPI; fall back to serial if mpirun cannot exec mlp (common after
+    # multi-day runs when NFS+krb5 tickets expire — see ensure_mlp in mtp_config.sh).
+    if ! run_mlp_or_serial calc-errors "${OUTPUT_MTP}" "${TRAIN_SET}" \
+            2>&1 | tee "${ERR_LOG}"; then
+        # Last resort: mlp train already printed "* * * TRAIN ERRORS * * *"
+        if grep -q "Errors report" "${TRAIN_LOG}" 2>/dev/null; then
+            echo "WARNING: calc-errors failed; salvaging TRAIN ERRORS from ${TRAIN_LOG}" >&2
+            # Extract the errors report block from the end of the train log.
+            awk '
+                /\* \* \* TRAIN ERRORS \* \* \*/ {grab=1}
+                grab {print}
+                /^_{10,}/ && seen_header {if (++ends>=2) exit}
+                grab && /Errors report/ {seen_header=1}
+            ' "${TRAIN_LOG}" > "${ERR_LOG}"
+        else
+            echo "calc-errors failed and no TRAIN ERRORS in train log" >&2
+            exit 1
+        fi
+    fi
+    # Reject logs that only contain mpirun launch failures (incomplete prior runs).
+    if ! grep -q "Errors report" "${ERR_LOG}"; then
+        # Second chance: salvage from train log even if tee wrote an error banner.
+        if grep -q "Errors report" "${TRAIN_LOG}" 2>/dev/null; then
+            echo "WARNING: calc-errors log incomplete; salvaging TRAIN ERRORS from ${TRAIN_LOG}" >&2
+            awk '
+                /\* \* \* TRAIN ERRORS \* \* \*/ {grab=1}
+                grab {print}
+                /^_{10,}/ && seen_header {if (++ends>=2) exit}
+                grab && /Errors report/ {seen_header=1}
+            ' "${TRAIN_LOG}" > "${ERR_LOG}"
+        fi
     fi
 fi
 if ! grep -q "Errors report" "${ERR_LOG}"; then
     echo "calc-errors log has no Errors report: ${ERR_LOG}" >&2
     exit 1
 fi
-# Keep canonical name used by run.sh / validate
-cp "${ERR_LOG}" "${LOGDIR}/calc_errors_train.log"
+# Keep canonical name used by run.sh / validate. No-op when TRAIN_TAG=train
+# (ERR_LOG is already calc_errors_train.log); GNU cp fails on same-file.
+cp_unless_same "${ERR_LOG}" "${LOGDIR}/calc_errors_train.log"
 
 if [[ -f "${VALID_CFG}" ]]; then
     echo "[4/4] Validation-set errors"
