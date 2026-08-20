@@ -146,6 +146,7 @@ Refine is designed to survive multi-day interruptions:
 
 - Each stage pot is promoted to `TRAINED_MTP` as soon as it is fitted  
 - Incomplete postproc after BFGS is salvaged from the train log (`TRAIN ERRORS` block)  
+- Sealing `calc_errors_train.log` uses `cp_unless_same` so GNU cp cannot abort when the tag is already `train`  
 - Completed `continue_rN` stages are skipped when re-entering refine  
 - `run.sh` auto-resume can re-enter at `refine` via `workflow_state.env`
 
@@ -155,7 +156,7 @@ State / logs of interest:
 |------|------|
 | `active_learning/refine/WC_L*_*.mtp` | Per-stage potentials |
 | `active_learning/logs/continue_r*.log` | Continue BFGS logs |
-| `active_learning/logs/train_status.env` | Last stage metrics (`FORCE_RMS`, `STEP_LIMIT`, …) |
+| `active_learning/logs/train_status.env` | Last stage metrics (`FORCE_RMS`, `STEP_LIMIT`, `TRAIN_N_CFG`, `POSTPROC_PENDING`) |
 | `active_learning/logs/calc_errors_*.log` | Per-tag error reports |
 | `active_learning/workflow_state.env` | Orchestrator resume point |
 

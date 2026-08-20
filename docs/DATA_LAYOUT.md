@@ -49,7 +49,9 @@ This repository separates **committed workflow code** from **local DFT / trainin
 | `active_learning/**` | Trained `.mtp`, `.als`, per-iter grades, logs |
 | `active_learning/refine/` | Stage pots, filtered cfg, high-error subset |
 | `active_learning/workflow_state.env` | Orchestrator resume state |
-| `active_learning/logs/train_status.env` | Last train metrics |
+| `active_learning/al_loop.env` | AL driver progress (last completed iter) |
+| `active_learning/al_converged.ok` | Candidate pool covered / loop finished |
+| `active_learning/logs/train_status.env` | Last train metrics (`FORCE_RMS`, `TRAIN_N_CFG`, `POSTPROC_PENDING`) |
 | exceptions | `active_learning/.gitkeep` (and empty log dir placeholders if present) |
 
 ### Runtime / staged binaries
@@ -88,6 +90,8 @@ wc-MTP-workflows/                 # git clone
 ├── active_learning/              # created by train / AL / refine
 │   ├── WC_L20_trained.mtp
 │   ├── workflow_state.env
+│   ├── al_loop.env               # AL driver progress
+│   ├── al_converged.ok           # pool covered / loop finished
 │   ├── logs/
 │   │   ├── train.log
 │   │   ├── train_status.env
@@ -143,10 +147,11 @@ export MLIP_ROOT=/path/to/mlip-2
 # 3. Train + validate (+ auto-refine if needed)
 ./run.sh --skip-dataset
 
-# 4. Optional AL
-#    leftover AIMD staging frames are used if candidates/ is empty;
-#    they already have DFT labels and are merged + retrained.
-#    put new MTP-MD dumps in datasets/candidates/ if you need unlabeled exploration
+# 4. Optional AL — one command runs all iterations until the cap or
+#    the pool is covered. leftover AIMD staging frames are used if
+#    candidates/ is empty; they already have DFT labels and are merged
+#    + retrained. put new MTP-MD dumps in datasets/candidates/ if you
+#    need unlabeled exploration. after a crash: just re-run --al
 ./run.sh --al
 
 # 5. After crash: just re-run (auto-resume)

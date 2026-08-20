@@ -9,17 +9,18 @@ This repo ships **pipelines, config, and small MTP templates**. Large VASP traje
 ## Features
 
 - One-command pipeline: template → dataset → train → validate
-- **Auto-resume** after crashes (`workflow_state.env`; skip completed steps)
+- **Auto-resume** after crashes (`workflow_state.env` / `al_loop.env`; skip completed steps; AL driver restarts remaining iters)
 - **MPI-parallel** train / grade / select-add (`MPI_NPROCS`, default 19)
 - **MLP staging** onto project filesystem (survives multi-day jobs when `$HOME` NFS+krb5 tickets expire)
 - **Auto-refine** when validation fails: more BFGS + rescale, force-weighted retrain, high-error subset, mindist check
 - Optional **active learning** based on the MLIP **MaxVol / extrapolation-grade** strategy (D-optimality)
+  - `./run.sh --al` runs the **full loop** (select → merge/retrain → next iter) until `AL_MAX_ITERATIONS` (default 20) or the candidate pool is covered (`al_converged.ok`)
   - Selects configurations that most expand the training coverage in descriptor space
   - If a selection already has VASP `Energy` + forces (leftover AIMD/OUTCAR frames), it is **merged and retrained** — no new DFT
-  - Retrain after a merge always runs BFGS (`TRAIN_FORCE=1`, `AL_RETRAIN_MAX_ITER=400`); an existing pot is not treated as done, and `merged.ok` is written only after the pot matches the new `train.cfg`
+  - After a merge, BFGS is forced (`TRAIN_FORCE=1`, `AL_RETRAIN_MAX_ITER=400`) unless the pot already matches `train.cfg` or only post-processing is pending; `merged.ok` is written only after the pot matches
   - Already-labeled leftover AIMD is not capped at 50 (`AL_LABELED_SELECTION_LIMIT=0`) so one select-add can merge the full MaxVol set
   - New VASP is requested only for unlabeled MD/exploratory frames; that pause is recorded as `paused`, not a crash
-  - Resume reuses `iter_NNN/dft_queue.cfg` so grade/select is not rerun
+  - A crash mid-iter is retried (`AL_LOOP_RESTARTS`, default 20); completed iters are skipped. Resume reuses `iter_NNN/dft_queue.cfg` so grade/select is not rerun
   - See [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) for the loop, MaxVol rationale, and when DFT is actually needed
 - Optional **per-trajectory** MTP fits for diagnostics
 - Shared hyperparameters in `scripts/mtp_config.sh` (all overridable via env)
@@ -106,8 +107,9 @@ chmod +x run.sh scripts/*.sh scripts/*.py
                      force retrain → high-error → mindist)    │
                                                               ▼
                                                     Active learning
-                                                    (select → merge if already labeled
-                                                     else DFT → merge → retrain)
+                                                    (loop: select → merge if labeled
+                                                     else DFT pause → merge → retrain
+                                                     → next iter; crash = restart)
 ```
 
 | Step | What runs | Main outputs |
@@ -117,7 +119,7 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 | 3. Train | Linear MTP fit (continues fitted pot if found) | `active_learning/WC_L20_trained.mtp` |
 | 4. Validate | Parse `calc-errors` vs thresholds | Pass/fail gate |
 | 4b. Refine | More BFGS, force retrain, high-error subset | `active_learning/refine/*.mtp` |
-| 5. AL (opt.) | Grade + select-add; merge already-labeled queues and **force-retrain** | `iter_*/dft_queue.cfg`, updated `train.cfg` + refit pot |
+| 5. AL (opt.) | Loop: grade + select-add; merge already-labeled queues and **force-retrain**; next iter | `iter_*/dft_queue.cfg`, `al_loop.env`, updated `train.cfg` + refit pot |
 | 6. Per-traj (opt.) | One MTP per AIMD folder | Per-folder potentials |
 
 ### Resume behavior
@@ -125,10 +127,12 @@ chmod +x run.sh scripts/*.sh scripts/*.py
 By default (`AUTO_RESUME=1`), re-running `./run.sh` after a crash:
 
 - Skips steps already complete (dataset present, pot trained + errors logged, …)
-- Continues train post-processing if BFGS finished but `calc-errors` died
+- Continues train post-processing if BFGS finished but `calc-errors` / status sealing died (`TRAIN_RESUME_POSTPROC`; reuses the existing errors log)
 - Restores planned `--al` / `--per-traj` / refine intents from `active_learning/workflow_state.env`
 - If AL paused for unlabeled DFT (`CURRENT_STATUS=paused`), re-running `--al` continues from the existing queue
 - Existing `iter_NNN/dft_queue.cfg` is reused (no re-grade); `iter_NNN/merged.ok` skips a finished iteration only if the pot still matches the current `train.cfg` (stale stamps from a skipped BFGS are ignored)
+- If the AL **driver** crashes mid-iter, `run.sh --al` restarts it (up to `AL_LOOP_RESTARTS`); finished iters stay skipped. Progress is in `active_learning/al_loop.env`; a covered pool is stamped `al_converged.ok`
+- An unchanged merge does not rewrite `train.cfg` (avoids a wasted second BFGS)
 
 Force a full re-plan: `./run.sh --fresh`. Force random-init train (ignore fitted pots): `TRAIN_FRESH=1 ./run.sh --skip-dataset`.
 
@@ -184,6 +188,10 @@ From `scripts/mtp_config.sh` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 | `AUTO_RESUME` | 1 | Skip completed workflow steps |
 | `AUTO_REFINE` | 1 | Run refine when validation fails |
 | `AL_SELECT_THRESHOLD` | 3.0 | Maxvol grade for select-add |
+| `AL_MAX_ITERATIONS` | 20 | AL loop cap (one `./run.sh --al` runs all iters) |
+| `AL_LOOP_RESTARTS` | 20 | Restart AL driver after a crash |
+| `AL_RETRAIN_MAX_ITER` | 400 | BFGS steps after an AL merge |
+| `AL_LABELED_SELECTION_LIMIT` | 0 | Full MaxVol set for leftover AIMD |
 | Force RMS target | ≤ 0.08 eV/Å | Validation gate |
 
 ## Documentation
@@ -193,7 +201,7 @@ From `scripts/mtp_config.sh` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 | [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) | Full walkthrough: setup, train, resume, refine, AL |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | All env vars and defaults |
 | [docs/REFINE.md](docs/REFINE.md) | Post-train refine sequence (BFGS continue, force retrain) |
-| [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | MaxVol AL: already-labeled AIMD leftover frames vs unlabeled MD, pause/resume, merge + retrain |
+| [docs/ACTIVE_LEARNING.md](docs/ACTIVE_LEARNING.md) | MaxVol AL: auto-loop, labeled AIMD merge, crash restart, pause for unlabeled DFT |
 | [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) | Local data paths and what Git ignores |
 
 ## What is not committed

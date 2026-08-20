@@ -106,11 +106,12 @@ Logs go to `logs/run_YYYYMMDD_HHMMSS.log`. Step state: `active_learning/workflow
 | Situation | What resume does |
 |-----------|------------------|
 | Dataset already built | Skips dataset |
-| BFGS finished, calc-errors died | Finishes errors + status only |
+| BFGS finished, calc-errors / status died | Finishes errors + `train_status.env` only (`TRAIN_RESUME_POSTPROC`; reuses errors log) |
 | Pot trained + validated | Skips train; re-validates cheaply |
 | Mid-refine crash | Re-enters refine; skips completed continue rounds |
 | AL paused (`CURRENT_STATUS=paused`) | Reuses `iter_*/dft_queue.cfg`; merges if already labeled |
 | AL iter already merged (`merged.ok`) | Skips that iteration only if the pot still matches `train.cfg` |
+| AL driver crashed mid-iter | Restarts remaining iters (`AL_LOOP_RESTARTS`); completed stamps stay skipped |
 
 Concurrent second run while a step is live is blocked (PID recorded in state). Use `--fresh` only if that process is gone.
 
@@ -123,7 +124,7 @@ Concurrent second run while a step is live is blocked (PID recorded in state). U
 | `--skip-validate` | Skip error thresholds |
 | `--refine` | Force refine sequence after train |
 | `--skip-refine` | Do not auto-refine when validation fails |
-| `--al` | After train, run AL (auto-merge already-labeled leftover AIMD frames) |
+| `--al` | After train, run the **full** AL loop (all iters until cap or pool exhausted; auto-merge labeled leftover AIMD; restart on crash) |
 | `--candidates FILE` | Candidate pool for AL (implies `--al`) |
 | `--labeled FILE` | Merge new DFT labels into `train.cfg` before retrain |
 | `--per-traj` | Also train one MTP per AIMD folder |
@@ -294,9 +295,9 @@ Short cycle:
 2. `./run.sh --al` — one command runs **all** AL iterations up to `AL_MAX_ITERATIONS` (default 20). After each verified retrain it starts the next grade/select automatically.  
 3. Already-labeled selections (Energy + forces present) → merge into `train.cfg` and **force-retrain** (`TRAIN_FORCE=1`, `AL_RETRAIN_MAX_ITER=400`). Leftover AIMD is not capped at 50 — the full MaxVol set is merged in one pass. No new VASP.  
 4. Unlabeled selections only → run VASP, put `.cfg` in `datasets/labeled/`, re-run `./run.sh --al` (the loop then continues remaining iters).  
-5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a *verified* retrain, `iter_NNN/merged.ok` skips that iteration. A crash mid-iter is retried (`AL_LOOP_RESTARTS`); completed stamps are skipped. A 0-byte stamp from a skipped BFGS is ignored.
+5. Resume is cheap: existing `iter_NNN/dft_queue.cfg` is reused (no re-grade). After a *verified* retrain, `iter_NNN/merged.ok` skips that iteration. A crash mid-iter is retried (`AL_LOOP_RESTARTS`); completed stamps are skipped. A 0-byte stamp from a skipped BFGS is ignored. Progress: `active_learning/al_loop.env`. Pool covered: `active_learning/al_converged.ok`.
 
-A pause for unlabeled DFT is `CURRENT_STATUS=paused` (exit 10), not a failed workflow.
+A pause for unlabeled DFT is `CURRENT_STATUS=paused` (exit 10), not a failed workflow. An unchanged merge does not rewrite `train.cfg`. If BFGS already finished, only post-processing is sealed (`TRAIN_RESUME_POSTPROC`).
 
 If refine produced `active_learning/refine/high_force_error.cfg`, that subset is already DFT-labeled and is a useful focus map for high-force local environments.
 
@@ -340,7 +341,7 @@ Default `MAX_PARALLEL=1` so concurrent jobs do not multiply MPI ranks. Individua
 | `scripts/validate_mtp.py` | Threshold check on error logs |
 | `scripts/cfg_label_status.py` | Report / extract already-labeled vs unlabeled `.cfg` blocks |
 | `scripts/active_learning.sh` | One AL iteration (grade + select-add, MPI) |
-| `scripts/run_active_learning.sh` | Multi-iteration AL driver (auto-merge labeled queues; pause if unlabeled) |
+| `scripts/run_active_learning.sh` | Multi-iteration AL driver (auto-merge labeled queues; continue to next iter; pause if unlabeled; stamp `al_converged.ok`) |
 | `scripts/select_from_md.sh` | Helper to pull frames from MD |
 | `scripts/run_all_trajectories.sh` | Batch per-trajectory training |
 | `scripts/train_trajectory.sh` | Single-trajectory training |
@@ -386,6 +387,8 @@ Full list: [CONFIGURATION.md](CONFIGURATION.md). Source of truth: `scripts/mtp_c
 | AL paused for DFT on leftover AIMD | Queue should already be labeled; rerun `./run.sh --al` with the updated driver |
 | AL ran BFGS instead of grade/select | After a merge the pot must be refit before the next grade. Wait for train, then AL continues |
 | AL skipped BFGS after merge (`Already complete`) | Driver now sets `TRAIN_FORCE=1`; `train.cfg` newer/larger than the pot also blocks the skip. Remove a stale 0-byte `iter_*/merged.ok` if needed |
+| AL driver crashed mid-iter | Re-run `./run.sh --al`. Completed `merged.ok` iters are skipped (`AL_LOOP_RESTARTS`) |
+| `train_mtp` aborted on `cp` after BFGS | Same-file copy of `calc_errors_train.log` is a no-op; re-run seals `train_status.env` without a second BFGS |
 | AL re-grades a huge pool | Existing `iter_*/dft_queue.cfg` should be reused; do not delete it |
 | Template regenerate loop | Ensure `MLIP_ROOT/untrained_mtps/` has the matching level file |
 | “Another workflow appears to be running” | Wait for PID, or kill stale process, or `./run.sh --fresh` if state is stale |

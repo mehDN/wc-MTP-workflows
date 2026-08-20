@@ -80,8 +80,11 @@ Physical notes encoded in comments:
 | `TRAIN_FORCE` | `0` | `1` = always re-run BFGS (set by AL after merge and by `--labeled`) |
 | `TRAIN_RESUME` | `auto` | `auto` = continue from newest fitted pot; `1` = prefer curr; `0` = no auto-pick |
 | `TRAIN_START_MTP` | *(unset)* | Explicit start potential path |
+| `TRAIN_RESUME_POSTPROC` | `0` | `1` = skip BFGS; seal `train_status.env` / calc-errors only (set by `run.sh` auto-resume and the AL driver when BFGS already finished) |
 
-`train_fully_complete` (used by auto-resume) is **false** when `train.cfg` is newer than the pot or `TRAIN_N_CFG` in `train_status.env` does not match the current configuration count. That stops a leftover pot + error log from looking “done” after an AL merge. `train_status.env` records `TRAIN_N_CFG` on every fit.
+`train_fully_complete` (used by auto-resume) is **false** when `train.cfg` is newer than the pot or `TRAIN_N_CFG` in `train_status.env` does not match the current configuration count. That stops a leftover pot + error log from looking “done” after an AL merge. `train_status.env` records `TRAIN_N_CFG` and `POSTPROC_PENDING` on every fit.
+
+`train_postproc_pending` is true when the pot exists and matches `train.cfg` but status sealing / errors log is incomplete. In that case the AL driver and `run.sh` resume with `TRAIN_RESUME_POSTPROC=1` (no second BFGS). Copying `calc_errors_train.log` onto itself is a no-op (`cp_unless_same`) so GNU cp cannot abort the seal under `set -e`.
 
 Training uses a **linear fit on a fixed basis** by default (nonlinear only if you change the workflow). Fitted pots are auto-discovered under `active_learning/` (`WC_L{level}_*.mtp`, `curr`, `trained`, refine stages).
 
@@ -123,8 +126,11 @@ See [REFINE.md](REFINE.md) for stage details.
 |----------|---------|-------------|
 | `AUTO_RESUME` | `1` | Skip steps already completed on disk |
 | `WORKFLOW_STATE_FILE` | `$MTP_AL_DIR/workflow_state.env` | Step status written by `run.sh` |
+| `AL_PROGRESS_FILE` | `$MTP_AL_DIR/al_loop.env` | Last completed AL iteration / driver status |
 
 CLI: `--fresh` / `--no-resume` disable auto-skip; `--resume` forces it on.
+
+If BFGS finished but calc-errors / `train_status.env` was not sealed, re-running `./run.sh` continues post-processing only (`TRAIN_RESUME_POSTPROC=1`). If the AL driver crashes mid-iter, `run.sh --al` restarts it (`AL_LOOP_RESTARTS`); completed `merged.ok` iters stay skipped.
 
 ---
 
@@ -186,6 +192,8 @@ Resume artifacts under `active_learning/iter_NNN/`:
 | `dft_queue.cfg` | Selected configs; reused on resume (grade/select skipped) |
 | `unlabeled_queue.cfg` | Split remainder that still needs DFT (mixed queues) |
 | `merged.ok` | Stamp written after a *verified* merge + retrain (`TRAIN_N_CFG=`, pot path). Empty or stale stamps (pot does not match `train.cfg`) are deleted and the iteration retrains |
+| `../al_loop.env` | Driver progress (`LAST_COMPLETED_ITER`, `STATUS`) |
+| `../al_converged.ok` | Written when the pool yields zero selections (or holdout validation passes with `AL_STOP_ON_VALID=1`) |
 
 If no `datasets/candidates/*.cfg` exists, the fallback pool is the full AIMD staging set (`datasets/initial/staging/aimd_*.cfg`, not the stride-subsampled train set). That pool is cached as `datasets/candidates/_aimd_staging_pool.cfg` and rebuilt only when staging files are newer.
 
@@ -223,6 +231,7 @@ If no `datasets/candidates/*.cfg` exists, the fallback pool is the full AIMD sta
 | `ALS_FILE` | `$MTP_AL_DIR/state.als` |
 | `SOURCES_CONF` | `$MTP_DATASETS_DIR/sources.conf` |
 | `WORKFLOW_STATE_FILE` | `$MTP_AL_DIR/workflow_state.env` |
+| `AL_PROGRESS_FILE` | `$MTP_AL_DIR/al_loop.env` |
 
 ### Per-trajectory batch
 

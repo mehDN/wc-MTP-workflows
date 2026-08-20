@@ -125,13 +125,18 @@ Helper: `scripts/select_from_md.sh` (thin helper for MD frame selection workflow
 
 ---
 
-## One iteration
+## One iteration vs the full loop
+
+`scripts/active_learning.sh` is **one** grade + select-add. The orchestrator and driver run **all** iterations:
 
 ```bash
-./scripts/active_learning.sh <candidate.cfg> [iteration_label]
-# or via orchestrator:
+# Full loop (recommended): select → merge/retrain → next iter, until
+# AL_MAX_ITERATIONS or the pool is covered. Crashes restart remaining iters.
 ./run.sh --al
 ./run.sh --al --candidates datasets/candidates/md_frames.cfg
+
+# One grade + select-add only:
+./scripts/active_learning.sh <candidate.cfg> [iteration_label]
 ```
 
 Grade and select-add run under **MPI** (`run_mlp`, default `MPI_NPROCS=19`).
@@ -217,27 +222,33 @@ If zero selections are returned, the loop treats the pool as covered (`active_le
 
 ---
 
-## Recommended loop (manual)
+## Recommended loop
 
 ```text
   MTP MD / explore on unreconstructed W-vacancy
               │
               ▼
-   datasets/candidates/*.cfg
+   datasets/candidates/*.cfg   (or leftover AIMD staging if empty)
               │
               ▼
-   ./run.sh --al          # or --only refine first if force RMS high
+   ./run.sh --al               # or --only refine first if force RMS high
+              │                # one command: all iters until cap / pool covered
+              ▼
+   for each iter_NNN (automatic):
+       dft_queue.cfg
+              │
+              ├── already has Energy + forces ──► merge + retrain ──► next iter
+              │
+              └── unlabeled ──► pause (exit 10)
+                                VASP → datasets/labeled/*.cfg
+                                └── ./run.sh --al  (continues remaining iters)
               │
               ▼
-   active_learning/iter_*/dft_queue.cfg
-              │
-              ├── already has Energy + forces ──► merge + retrain
-              │
-              └── unlabeled ──► VASP ──► datasets/labeled/*.cfg
-                                      └── ./run.sh --al
+   crash mid-iter → run.sh restarts the driver (AL_LOOP_RESTARTS);
+                    completed merged.ok iters are skipped
               │
               ▼
-   validate / refine; if dimer not stable or forces high → next AL round
+   pool covered (al_converged.ok) or AL_MAX_ITERATIONS
               │
               ▼
    optional: MTP_LEVEL=22 if defect force RMSE > 0.1 eV/Å
@@ -251,7 +262,7 @@ If zero selections are returned, the loop treats the pool as covered (`active_le
 |----------|---------|----------------|
 | `AL_SELECT_THRESHOLD` | 3.0 | Lower (e.g. 2.0–2.5) to select more aggressively early; raise when pool is noisy |
 | `AL_SELECTION_LIMIT` | 50 | DFT budget for unlabeled MD. Leftover AIMD uses `AL_LABELED_SELECTION_LIMIT` instead |
-| `AL_LABELED_SELECTION_LIMIT` | 0 (unlimited) | Take the full MaxVol set when the pool is already labeled. Yesterday’s leftover-AIMD pass wanted 233 configs but the 50-cap forced ~5 more 9-hour select-add rounds |
+| `AL_LABELED_SELECTION_LIMIT` | 0 (unlimited) | Take the full MaxVol set when the pool is already labeled. A cap of 50 would force extra multi-hour select-add rounds on leftover AIMD |
 | `AL_RETRAIN_MAX_ITER` | 400 | BFGS steps after merge. Default 2000 is a multi-day refine, not an AL update |
 | `AL_MAX_ITERATIONS` | 20 | Safety cap on automated driver |
 | `AL_LOOP_RESTARTS` | 20 | Times `run.sh` restarts the AL driver after a crash |
@@ -278,6 +289,8 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 | `active_learning/iter_*/unlabeled_queue.cfg` | Split remainder that still needs DFT |
 | `active_learning/iter_*/merged.ok` | Stamp after verified merge + retrain (`TRAIN_N_CFG`, pot path). Empty/stale stamps are ignored |
 | `active_learning/iter_*/calc_grade.log` | Grade statistics |
+| `active_learning/al_loop.env` | Driver progress (`LAST_COMPLETED_ITER`, `STATUS`, …) |
+| `active_learning/al_converged.ok` | Pool covered or holdout validation passed (`AL_STOP_ON_VALID=1`) |
 | `datasets/initial/train.cfg` | Growing training set |
 | `active_learning/workflow_state.env` | Orchestrator resume state |
 
@@ -305,6 +318,9 @@ AL_SELECT_THRESHOLD=2.5 AL_SELECTION_LIMIT=30 ./run.sh --al
 | Re-grade of a huge pool on every rerun | Should not happen: existing `iter_NNN/dft_queue.cfg` is reused until a *verified* `merged.ok` |
 | AL starts BFGS instead of grade/select | Expected after a merge: new labels must be fit before the next grade. That is the retrain half of the loop |
 | AL skipped BFGS after merging (`Already complete`) | Fixed: driver sets `TRAIN_FORCE=1` and `train_fully_complete` refuses to skip when `train.cfg` is newer or larger than the last fit. Delete a 0-byte `iter_*/merged.ok` if an old run stamped it after a skip |
+| AL driver crashed mid-iter | Re-run `./run.sh --al`. Completed `merged.ok` iters are skipped; the unfinished iter is retried (`AL_LOOP_RESTARTS`) |
+| BFGS finished but `train_status.env` missing / `cp` aborted | Post-processing only: the driver sets `TRAIN_RESUME_POSTPROC=1` and reuses the errors log. Same-file `cp` of `calc_errors_train.log` is a no-op |
+| Merge rewrote `train.cfg` and triggered a second BFGS | Unchanged merges no longer rewrite `train.cfg` (mtime would look “newer than the pot”) |
 | Too many DFT jobs | Lower `AL_SELECTION_LIMIT`; leftover AIMD frames do not need new VASP |
 | Forces good on train, bad on vacancy MD | Candidate pool not covering the reconstruction path |
 | Template / level mismatch | Set `MTP_LEVEL` consistently; regenerate template via `ensure_mtp_template` |
